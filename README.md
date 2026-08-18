@@ -1,5 +1,7 @@
 # dsh-unidoc — 通用文档中心（Universal Document Center）
 
+🌐 **中文** | [English](./README.en.md)
+
 > DeepSeek Harness 的文档预览 / 编辑 / 管理插件。在 DSH Web GUI 中提供一个
 > VSCode 风格的「文档中心」工作台：左侧文件树，点击即预览，代码与 Markdown
 > 支持编辑与 `Ctrl/Cmd+S` 保存；同时为 Agent 暴露 `doc_read` / `doc_edit` /
