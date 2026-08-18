@@ -1,0 +1,45 @@
+{
+  "name": "dsh-unidoc",
+  "version": "0.1.0",
+  "description": "通用文档中心（Universal Document Center）— DeepSeek Harness 文档预览/编辑/管理插件（静态包形态：lib/index.js host 外壳 + lib/client.js 浏览器 bundle）",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "check": "node scripts/check.js",
+    "build:client": "node scripts/build-client.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "document-center",
+    "preview",
+    "markdown",
+    "code-editor"
+  ]
+}

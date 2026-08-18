@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html>
+<head><title>unidoc 沙箱测试</title></head>
+<body>
+  <h1>沙箱 HTML 预览</h1>
+  <p>这里有一张图片：<img src="fake.png" alt="fake"></p>
+  <script>document.body.innerHTML = 'XSS 不应执行';</script>
+</body>
+</html>
