@@ -3,8 +3,9 @@
  * 通用文档中心（Universal Document Center）工作台：
  *   - 侧边栏底部「文档中心」入口（sidebar.footer.action，仅图标，Font Awesome file-pen）
  *   - 全屏工作台（shell.overlay）：文件树 + 多格式预览/编辑 + Toast
- *   - 工作区识别：打开时先刷新根目录并无条件重载文件树，运行期每 15s 感知切换；
- *     根目录变化时自动重置文件树（清缓存、重置展开、重载）并保持与顶部路径一致
+ *   - 工作区识别：打开时先刷新根目录并无条件重载文件树，运行期每 5s 感知切换；
+ *     根目录变化时自动重置文件树（清缓存、重置展开/选中/滚动位置、重载）
+ *     并保持与顶部路径一致
  *   - 文件树：懒加载 + 「展开全部/折叠全部」（含 .git 等隐藏目录，异步分批加载）
  *   - 文件树图标：按扩展名映射 Font Awesome 图标（内嵌官方 SVG path）
  *   - HTML 预览「新标签页打开」（unidoc.openExternal）+ 各视图「外部打开」
@@ -221,6 +222,9 @@ return {
       React.useEffect(() => subscribe(force), [])
       return store
     }
+
+    // 工作区切换感知轮询间隔：建议 3-5 秒（过短会频繁触发 unidoc.root RPC，影响性能）
+    const WS_POLL_MS = 5000
 
     /* ---------------- 工具函数 ---------------- */
     const extOf = (name) => {
@@ -952,6 +956,7 @@ return {
       const [loading, setLoading] = React.useState({})
       const [expanding, setExpanding] = React.useState(false)
       const busyRef = React.useRef(false)
+      const scrollRef = React.useRef(null) // 文件树滚动容器，重置时滚回顶部
       const sortEntries = (entries) => (entries || []).slice().sort((a, b) => {
         if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
         return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
@@ -980,6 +985,8 @@ return {
         setCache({})
         setExpanded({ '': true })
         setLoading({})
+        // 重置滚动位置到顶部：刷新 / 工作区切换后，文件树回到根目录视图
+        if (scrollRef.current) scrollRef.current.scrollTop = 0
         load('', true)
       }, [refreshKey, root])
 
@@ -1084,7 +1091,7 @@ return {
         }
       }
       walk('', 0)
-      return React.createElement('div', { className: 'udc-tree' },
+      return React.createElement('div', { ref: scrollRef, className: 'udc-tree' },
         React.createElement('div', { className: 'udc-tree-header' },
           React.createElement('span', {}, '📂 工作区文件'),
           React.createElement('span', { style: { flex: 1 } }),
@@ -1299,7 +1306,8 @@ return {
       //   1) 打开工作台时：先以 unidoc.root(refresh) 重新解析根目录，再**无条件**重载
       //      文件树——打开瞬间文件树会以 Host 缓存旧根挂载，必须以刷新后的最新根覆盖，
       //      避免「顶部路径已更新、文件树残留旧工作区」；
-      //   2) 运行期间每 15s 周期感知工作区切换：根目录变化 → 清空选中文件、重载文件树并提示。
+      //   2) 运行期间每 5s 周期感知工作区切换：根目录变化 → 清空选中文件（关闭预览）、
+      //      重置文件树（清缓存、重置展开状态、重置滚动位置到顶部）并提示。
       // 文件树自身的重置/重载由 Tree 的 [refreshKey, root] 依赖驱动（见 Tree 组件）。
       const syncRoot = async () => {
         let changed = false
@@ -1315,9 +1323,11 @@ return {
         return changed
       }
       const applyWorkspaceSwitch = () => {
-        setCurrent(null) // 工作区已变化：清空选中文件，避免预览残留旧工作区文件
+        // 工作区已变化：清空选中文件（关闭预览，避免残留旧工作区文件）；
+        // 文件树缓存 / 展开状态 / 滚动位置由 Tree 的 [refreshKey, root] 依赖一并重置
+        setCurrent(null)
         setRefreshKey((k) => k + 1)
-        pushToast('工作区已切换：' + store.root, 'success')
+        pushToast('工作区已切换，文件树已刷新：' + store.root, 'success')
       }
       React.useEffect(() => {
         if (!store.open) return
@@ -1337,10 +1347,10 @@ return {
             const changed = await syncRoot()
             if (changed && alive) applyWorkspaceSwitch()
           } catch (e) { /* 忽略 */ }
-          if (alive) handle = timer.timeout(loop, 15000)
+          if (alive) handle = timer.timeout(loop, WS_POLL_MS)
         }
         syncOnce()
-        handle = timer.timeout(loop, 15000)
+        handle = timer.timeout(loop, WS_POLL_MS)
         return () => { alive = false; if (handle) handle() }
       }, [store.open])
 
