@@ -4,6 +4,8 @@
  *
  * 能力：
  *   - Client RPC：unidoc.root / unidoc.list / unidoc.read / unidoc.save / unidoc.create
+ *     / unidoc.openExternal（返回 raw 路由 URL 供新标签页打开）/ unidoc.openWithEditor
+ *     （detached+unref 启动外部编辑器，editorCmd 严格校验、路径经 fs.contains）
  *   - HTTP 路由：GET /dsh-unidoc/raw?p=<相对路径>（图片 / PDF / HTML 原始字节，含安全响应头）
  *   - 动态 Agent 工具：doc_read / doc_edit / doc_create
  *
@@ -239,6 +241,83 @@ return {
         const writePolicy = await buildWritePolicy(undefined, resolved.root)
         await fs.writeText(target, content, undefined, undefined, writePolicy)
         return okResult({ path: rel, size: content.length })
+      } catch (error) {
+        return errResult(error)
+      }
+    })
+
+    /* ---------------- RPC：unidoc.openExternal ---------------- */
+    // 返回当前文件的可访问 HTTP URL（复用 raw 路由），供客户端 window.open 新标签页打开；
+    // 能拿到请求头时组装绝对 URL（含协议/端口），否则退化为相对 URL。
+    harness.handle('unidoc.openExternal', async (args, meta) => {
+      try {
+        const rel = args && args.path ? String(args.path) : ''
+        if (!rel) return errResult(new Error('path 不能为空'))
+        const { target } = await resolveInRoot(rel)
+        const info = await fs.stat(target)
+        if (!info) return errResult(new Error('路径不存在'))
+        if (info.type === 'directory') return errResult(new Error('目标是一个目录'))
+        let base = ''
+        try {
+          const req = meta && meta.req
+          const hostHeader = req && req.headers && req.headers.host
+          if (hostHeader) {
+            const fwd = req.headers['x-forwarded-proto']
+            const proto = fwd || (req.socket && req.socket.encrypted ? 'https' : 'http')
+            base = proto + '://' + hostHeader
+          }
+        } catch (e) { /* 保持相对 URL */ }
+        const url = base + RAW_PREFIX + '?p=' + encodeURIComponent(rel)
+        return okResult({ path: rel, url })
+      } catch (error) {
+        return errResult(error)
+      }
+    })
+
+    /* ---------------- RPC：unidoc.openWithEditor ---------------- */
+    // 用外部编辑器（VSCode 等）打开工作区内文件：editorCmd 仅允许命令名或
+    // 可执行文件路径（无空格、无 shell 元字符），路径经 fs.contains 校验后
+    // 以 JSON 字符串引用传给 shell；进程 detached + stdio ignore + unref，
+    // 编辑器独立运行，绝不阻塞 / 拖住 Host 进程。
+    const EDITOR_CMD_RE = /^[A-Za-z0-9_.\-\\/:]+$/
+    harness.handle('unidoc.openWithEditor', async (args, meta) => {
+      try {
+        const rel = args && args.path ? String(args.path) : ''
+        const editorCmd = args && typeof args.editorCmd === 'string' ? args.editorCmd.trim() : ''
+        if (!rel) return errResult(new Error('path 不能为空'))
+        if (!editorCmd) return errResult(new Error('editorCmd 不能为空（如 code / notepad / 可执行文件路径）'))
+        if (editorCmd.length > 1024 || !EDITOR_CMD_RE.test(editorCmd)) {
+          return errResult(new Error('editorCmd 含非法字符，仅允许命令名或可执行文件路径'))
+        }
+        const { target } = await resolveInRoot(rel)
+        const info = await fs.stat(target)
+        if (!info) return errResult(new Error('路径不存在'))
+        if (info.type === 'directory') return errResult(new Error('目标是一个目录'))
+        const filePath = target && (target.displayPath || target.targetKey)
+          ? String(target.displayPath || target.targetKey)
+          : ''
+        if (!filePath) return errResult(new Error('无法解析文件的系统路径'))
+        // Windows 上 code / notepad 等多为 .cmd / .exe，统一走 shell 以兼容；
+        // 命令已被严格校验（无空白 / 无元字符），路径按平台规则加引号，杜绝注入。
+        const quoteArg = (s) => {
+          const v = String(s)
+          if (IS_WIN32) return '"' + v + '"' // Windows 文件名不允许出现双引号，无需转义
+          return "'" + v.replace(/'/g, "'\\''") + "'"
+        }
+        const child = spawn(editorCmd + ' ' + quoteArg(filePath), {
+          shell: true,
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+        })
+        child.on('error', (e) => {
+          console.error('dsh-unidoc: 外部编辑器启动失败:', e && e.message ? String(e.message) : String(e))
+        })
+        child.on('exit', (code) => {
+          if (code !== 0) console.error('dsh-unidoc: 外部编辑器进程退出码非 0（' + code + '），请检查编辑器命令是否已安装并在 PATH 中')
+        })
+        child.unref()
+        return okResult({ path: rel, editor: editorCmd, file: filePath, pid: child.pid || null })
       } catch (error) {
         return errResult(error)
       }

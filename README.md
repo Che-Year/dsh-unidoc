@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | 办公文档（只读） | `.docx` `.xlsx` `.pptx` | 元数据 + 「暂不支持在线预览」友好提示卡（Office 预览内核未加载） |
 | 代码与配置 | `.py .java .go .rs .cpp .c .js .ts .jsx .tsx .json .yaml .yml .toml .xml .ini .conf` 等 | 轻量语法高亮（关键词/字符串/注释/数字）+ 编辑 + `Ctrl/Cmd+S` 保存 + Tab 缩进 + 括号自动配对 |
-| 标记语言与富文本 | `.md` `.html` | Markdown：**编辑/预览双模式**，预览渲染标题/列表/代码块/表格/图片，支持相对图片与相对链接跳转；HTML：**沙箱预览**（CSP 禁脚本 + iframe `sandbox` 属性双重隔离）+ 源码视图 |
+| 标记语言与富文本 | `.md` `.html` | Markdown：**编辑/预览双模式**，预览渲染标题/列表/代码块/表格/图片，支持相对图片与相对链接跳转；HTML：**沙箱预览**（CSP 禁脚本 + iframe `sandbox` 属性双重隔离）+ 源码视图 + **新标签页打开**（`unidoc.openExternal`） |
 | 静态资源与版式 | `.png .jpg .jpeg .gif .svg .webp .pdf` | 图片自适应缩放；PDF 内嵌浏览器查看器（翻页/缩放由浏览器原生提供） |
 | 数据科学（探索性） | `.ipynb` | 只读 Notebook 预览：Markdown 单元渲染 + 代码单元高亮 + 文本输出 |
 | 纯文本兜底 | `.log .csv .txt` 及任意未归类文本 | CSV 渲染为表格；其余以**只读纯文本**打开——未知扩展名绝不崩溃 |
@@ -28,11 +28,11 @@
 - **侧边栏底部**「📄 文档中心」按钮（`sidebar.footer.action`）——打开/关闭工作台；
 - **全屏工作台**（`shell.overlay`）：
   - 顶部仅显示标题与根目录路径；
-  - 左侧为文件区（文件树：懒加载、目录展开、文件大小），**刷新 / 选项 / 关闭三个操作键统一排列在文件区下方（左下角）**，从布局上避免与其他插件悬浮按钮（如 better-sidebar 的折叠侧边栏图标）在右上角位置重合；
-  - 右侧为预览/编辑面板；
+  - 左侧为文件区（文件树：懒加载、目录展开、文件大小），**文件图标按扩展名映射 Font Awesome 标准图标**（代码/文档/图片/PDF/Office/压缩包/音视频等），刷新 / 选项 / 关闭三个操作键统一排列在文件区下方（左下角），从布局上避免与其他插件悬浮按钮（如 better-sidebar 的折叠侧边栏图标）在右上角位置重合；
+  - 右侧为预览/编辑面板：所有视图工具栏均有「外部打开」按钮（用外部编辑器打开当前文件），HTML 预览另有「新标签页」按钮（`window.open` raw 路由 URL）；
 - **运行卡片**（`tool.view.cordis`）：显示插件激活状态与一键打开按钮；
 - **Toast 反馈**：加载 Loading 状态、保存成功/失败提示；
-- **选项面板**（会话级内存配置，从文件区下方「⚙ 选项」键向上弹出）：代码编辑开关、Markdown 双模式开关、「暂不支持」提示卡开关。
+- **选项面板**（会话级内存配置，从文件区下方「⚙ 选项」键向上弹出）：代码编辑开关、Markdown 双模式开关、「暂不支持」提示卡开关、**外部编辑器命令**（默认 `code`，可填 `notepad` 或编辑器可执行文件路径）。
 
 ### 3. Agent 集成工具
 
@@ -63,6 +63,9 @@
     显式传递 `SandboxExecutionPolicy`（`workspaceRoot` = 解析出的工作区；工具调用尊重会话模式覆盖，
     如 `read-only` 会话拒绝写入）；
   - 提供 Client RPC：`unidoc.root` / `unidoc.list` / `unidoc.read` / `unidoc.save` / `unidoc.create`
+    / `unidoc.openExternal`（返回 raw 路由 URL，供客户端新标签页打开）/ `unidoc.openWithEditor`
+    （`child_process.spawn` 启动外部编辑器：`editorCmd` 严格校验防注入、路径经 `fs.contains`
+    防目录穿越、`detached` + `stdio: ignore` + `unref` 不阻塞 Host）
   - 注册 HTTP 路由（前缀随机、经 `ctx.effect` 自动回收）：`GET <rawPrefix>?p=<相对路径>`，
     为图片 / PDF / HTML 提供原始字节，HTML 附带 `Content-Security-Policy`（禁脚本/禁连接）
     与 `X-Content-Type-Options: nosniff`
@@ -73,6 +76,8 @@
   - 纯 `React.createElement`（无 JSX、无打包器），样式经 `styles.insert` 注入
     并使用 `--dsw-alias-*` 主题 token（自动适配亮/暗主题）
   - 自研轻量 Markdown 渲染器与代码分词高亮器（行内解析全部转义，防 XSS）
+  - 文件树图标内嵌 Font Awesome 6 Free Solid 官方 SVG path（按扩展名映射），
+    不依赖 GUI 是否内置 FA 字体
   - 所有文件 IO 经 `host.call` 走 Host 半端，不直接触碰页面全局
 
 ### 生命周期
@@ -85,15 +90,27 @@
 
 ## 安装与运行
 
-本仓库是 dsh-unidoc 的**源码与文档仓库**；插件本体以 DSH **动态 Cordis 插件**形式
-部署在正在运行的 Harness 会话中（由 `cordis_define` / `cordis_run` 管理），
-源码即为 `src/host.js` 与 `src/client.js`。
+本仓库是 dsh-unidoc 的**源码与文档仓库**；插件以 DSH **静态 Cordis 插件包**发布（`lib/` 为构建产物，已随包提交），
+也可直接作为 DSH profile 依赖安装：
 
 ```bash
-# 1. 语法冒烟检查（与 DSH define-time 预检同构）
-node scripts/check.js
+# 作为 DSH profile 依赖安装（lib/ 已包含在包内，prepare 也会自动构建）
+npm install git+https://github.com/Che-Year/dsh-unidoc
+```
 
-# 2. 在会话中部署：使用 cordis_define 提交两端源码（code.host / code.client），
+开发调试（源码 → 产物）：
+
+```bash
+# 1. 安装构建依赖（esbuild）
+npm install
+
+# 2. 语法冒烟检查（与 DSH define-time 预检同构）
+npm run check
+
+# 3. 构建产物到 lib/（esbuild 打包 host + 自定义 bundler 打包 client）
+npm run build
+
+# 4. 在会话中部署：使用 cordis_define 提交两端源码（code.host / code.client），
 #    再 cordis_run 激活（Client 端首次激活需要批准）
 ```
 

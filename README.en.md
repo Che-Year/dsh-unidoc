@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | Office documents (read-only) | `.docx` `.xlsx` `.pptx` | Metadata + friendly "preview not supported yet" notice card (Office preview kernel not loaded) |
 | Code & config | `.py .java .go .rs .cpp .c .js .ts .jsx .tsx .json .yaml .yml .toml .xml .ini .conf` etc. | Lightweight syntax highlighting (keywords / strings / comments / numbers) + editing + `Ctrl/Cmd+S` save + Tab indentation + bracket auto-pairing |
-| Markup & rich text | `.md` `.html` | Markdown: **edit/preview dual mode** — preview renders headings, lists, code blocks, tables and images, with support for relative images and relative links; HTML: **sandboxed preview** (CSP disables scripts + iframe `sandbox` attribute, double isolation) + source view |
+| Markup & rich text | `.md` `.html` | Markdown: **edit/preview dual mode** — preview renders headings, lists, code blocks, tables and images, with support for relative images and relative links; HTML: **sandboxed preview** (CSP disables scripts + iframe `sandbox` attribute, double isolation) + source view + **open in new tab** (`unidoc.openExternal`) |
 | Static assets & layout | `.png .jpg .jpeg .gif .svg .webp .pdf` | Images scale to fit; PDF embedded browser viewer (paging / zoom provided natively by the browser) |
 | Data science (exploratory) | `.ipynb` | Read-only notebook preview: Markdown cell rendering + code cell highlighting + text output |
 | Plain text fallback | `.log .csv .txt` and any unclassified text | CSV rendered as a table; everything else opens as **read-only plain text** — unknown extensions never crash |
@@ -27,10 +27,10 @@
 ### 2. UI Entry Points
 
 - **Sidebar bottom** "📄 Document Center" button (`sidebar.footer.action`) — toggles the workbench;
-- **Fullscreen workbench** (`shell.overlay`): top toolbar (root directory, refresh, options, close), left file tree (lazy loading, directory expansion, file size), right preview/edit panel;
+- **Fullscreen workbench** (`shell.overlay`): top toolbar (root directory, refresh, options, close), left file tree (lazy loading, directory expansion, file size, **Font Awesome file icons by extension**), right preview/edit panel;
 - **Runtime card** (`tool.view.cordis`): shows the plugin's activation state with a one-click open button;
 - **Toast feedback**: loading state, save success/failure notices;
-- **Options panel** (session-level in-memory config): code editing toggle, Markdown dual-mode toggle, "not supported" notice card toggle.
+- **External editor**: every preview/edit toolbar has an "open externally" button; the editor command (default `code`, e.g. `notepad` or an executable path) is configured in the options panel (session-level in-memory config, along with the code editing toggle, Markdown dual-mode toggle and "not supported" notice card toggle).
 
 ### 3. Agent Tools
 
@@ -59,12 +59,16 @@ are validated with `fs.contains` to prevent directory traversal.
     Tool execution additionally honors the caller agent's (`exec.agent`) session `cwd` to precisely target the current workspace.
   - **Write policy**: the plugin-context fs backend's default sandbox root is not the session workspace, so all write paths (save / create / edit) explicitly pass a `SandboxExecutionPolicy` (`workspaceRoot` = resolved workspace); tool calls respect session-mode overrides, e.g. `read-only` sessions reject writes;
   - Client RPC: `unidoc.root` / `unidoc.list` / `unidoc.read` / `unidoc.save` / `unidoc.create`
+    / `unidoc.openExternal` (returns a raw-route URL for opening in a new tab) / `unidoc.openWithEditor`
+    (`child_process.spawn` for the external editor: `editorCmd` strictly validated, path guarded by `fs.contains`,
+    `detached` + `stdio: ignore` + `unref` so the host is never blocked)
   - HTTP routes (random prefix, auto-reclaimed via `ctx.effect`): `GET <rawPrefix>?p=<relative path>` serves raw bytes for images / PDF / HTML, attaching `Content-Security-Policy` (no scripts / no connections) and `X-Content-Type-Options: nosniff` to HTML responses
   - Registers 3 dynamic tools via `harness.defineTool` + `harness.registerTool`, mounted on the plugin Fiber (`ctx.effect`) and auto-unregistered on stop / update
 - **Client side** (`src/client.js`, runs in the browser page)
   - Dependency declaration: `inject: ['slots', 'timer']`
   - Pure `React.createElement` (no JSX, no bundler); styles injected via `styles.insert` using `--dsw-alias-*` theme tokens (auto-adapts to light/dark themes)
   - Self-built lightweight Markdown renderer and code tokenizer/highlighter (inline parsing fully escaped, XSS-safe)
+  - File-tree icons embed official Font Awesome 6 Free Solid SVG paths mapped by extension (no FA font required in the GUI)
   - All file I/O goes through `host.call` to the host side; never touches page globals directly
 
 ### Lifecycle
@@ -76,15 +80,28 @@ are validated with `fs.contains` to prevent directory traversal.
 
 ## Installation & Running
 
-This repository is the **source & documentation repo** for dsh-unidoc; the plugin itself is
-deployed as a DSH **dynamic Cordis plugin** into a running Harness session (managed via
-`cordis_define` / `cordis_run`). The source lives in `src/host.js` and `src/client.js`.
+This repository is the **source & documentation repo** for dsh-unidoc; the plugin is published as a DSH
+**static Cordis plugin package** (`lib/` build artifacts are committed with the repo), and can also be
+installed directly as a DSH profile dependency:
 
 ```bash
-# 1. Syntax smoke check (isomorphic with DSH define-time preflight)
-node scripts/check.js
+# Install as a DSH profile dependency (lib/ ships in the package; prepare also builds automatically)
+npm install git+https://github.com/Che-Year/dsh-unidoc
+```
 
-# 2. Deploy into a session: submit both sides' source with cordis_define (code.host / code.client),
+Development (source → artifacts):
+
+```bash
+# 1. Install build deps (esbuild)
+npm install
+
+# 2. Syntax smoke check (isomorphic with DSH define-time preflight)
+npm run check
+
+# 3. Build artifacts into lib/ (esbuild bundles the host + custom bundler for the client)
+npm run build
+
+# 4. Deploy into a session: submit both sides' source with cordis_define (code.host / code.client),
 #    then activate with cordis_run (client-side activation requires approval on first run)
 ```
 
