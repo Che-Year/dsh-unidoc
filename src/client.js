@@ -19,7 +19,7 @@ return {
 
     /* ---------------- 包级样式 ---------------- */
     styles.insert(`
-.udc-root{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base,#1b1f27);color:var(--dsw-alias-label-primary,#e6e6e6);font-size:13px;line-height:1.5;pointer-events:auto;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
+.udc-root{position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base,#1b1f27);color:var(--dsw-alias-label-primary,#e6e6e6);font-size:13px;line-height:1.5;pointer-events:auto;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
 .udc-header{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1,#2a2f3a);background:var(--dsw-alias-bg-layer-1,#222733);flex:none;position:relative}
 .udc-footer-label{font-size:12.5px}
 .udc-title{font-weight:600;font-size:14px;white-space:nowrap}
@@ -28,7 +28,9 @@ return {
 .udc-header-btn:hover{background:var(--dsw-alias-bg-layer-2,#2b3240);border-color:var(--dsw-alias-brand-primary,#4f8cff)}
 .udc-header-btn-active{background:var(--dsw-alias-bg-layer-2,#2b3240);border-color:var(--dsw-alias-brand-primary,#4f8cff)}
 .udc-body{flex:1;display:flex;min-height:0}
-.udc-tree{width:280px;flex:none;border-right:1px solid var(--dsw-alias-border-l1,#2a2f3a);overflow:auto;background:var(--dsw-alias-bg-layer-1,#222733)}
+.udc-side{width:280px;flex:none;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-l1,#2a2f3a);background:var(--dsw-alias-bg-layer-1,#222733)}
+.udc-tree{flex:1;min-height:0;overflow:auto;background:var(--dsw-alias-bg-layer-1,#222733)}
+.udc-actions-bar{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--dsw-alias-border-l1,#2a2f3a);position:relative}
 .udc-tree-header{padding:8px 12px;font-size:12px;color:var(--dsw-alias-label-secondary,#9aa4b2);border-bottom:1px solid var(--dsw-alias-border-l1,#2a2f3a);display:flex;align-items:center;gap:6px}
 .udc-row{display:flex;align-items:center;gap:5px;padding:3px 8px;cursor:pointer;user-select:none;white-space:nowrap}
 .udc-row:hover{background:var(--dsw-alias-bg-layer-2,#2b3240)}
@@ -106,7 +108,7 @@ return {
 .udc-toast-success{border-left:3px solid var(--dsw-alias-state-success-primary,#3fb950)}
 .udc-toast-error{border-left:3px solid var(--dsw-alias-state-error-primary,#ff6b6b)}
 .udc-toast-info{border-left:3px solid var(--dsw-alias-brand-primary,#4f8cff)}
-.udc-options-pop{position:absolute;top:44px;right:12px;background:var(--dsw-alias-bg-overlay,#262b36);border:1px solid var(--dsw-alias-border-l2,#3a4150);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;z-index:20;box-shadow:0 6px 24px rgba(0,0,0,.4);min-width:220px}
+.udc-options-pop{position:absolute;bottom:calc(100% + 6px);left:0;background:var(--dsw-alias-bg-overlay,#262b36);border:1px solid var(--dsw-alias-border-l2,#3a4150);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;z-index:20;box-shadow:0 6px 24px rgba(0,0,0,.4);min-width:220px}
 .udc-opt-row{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}
 .udc-opt-row input{cursor:pointer}
 .udc-footer-btn{display:flex;align-items:center;gap:6px;padding:4px 10px;background:transparent;border:none;color:var(--dsw-alias-label-secondary,#9aa4b2);font-size:12.5px;cursor:pointer;border-radius:6px}
@@ -1027,27 +1029,34 @@ return {
         const clean = String(rel || '').replace(/^\.\//, '').replace(/^\//, '')
         if (clean) setCurrent(clean)
       }
+      // 布局：头部只保留标题与根目录路径；刷新/选项/关闭统一排列在左侧文件树
+      // 下方（左下角），从根本上避免与其他插件悬浮按钮（如 better-sidebar 的
+      // 折叠侧边栏图标）在右上角位置重合。
       return React.createElement('div', { className: 'udc-root' },
         React.createElement('div', { className: 'udc-header' },
           React.createElement('span', { className: 'udc-title' }, '📄 通用文档中心'),
           React.createElement('span', { className: 'udc-path', title: store.root }, store.root || '…'),
-          React.createElement('button', { className: 'udc-header-btn', onClick: () => setRefreshKey((k) => k + 1) }, '↻ 刷新'),
-          React.createElement('button', { className: 'udc-header-btn' + (showOptions ? ' udc-header-btn-active' : ''), onClick: () => setShowOptions(!showOptions) }, '⚙ 选项'),
-          React.createElement('button', { className: 'udc-header-btn', onClick: () => setOpen(false) }, '✕ 关闭'),
-          showOptions ? React.createElement('div', { className: 'udc-options-pop' },
-            React.createElement('label', { className: 'udc-opt-row' },
-              React.createElement('input', { type: 'checkbox', checked: store.options.codeEdit, onChange: (e) => setOption('codeEdit', e.target.checked) }),
-              '代码/文本编辑（Ctrl/Cmd+S 保存）'),
-            React.createElement('label', { className: 'udc-opt-row' },
-              React.createElement('input', { type: 'checkbox', checked: store.options.mdPreview, onChange: (e) => setOption('mdPreview', e.target.checked) }),
-              'Markdown 编辑/预览双模式'),
-            React.createElement('label', { className: 'udc-opt-row' },
-              React.createElement('input', { type: 'checkbox', checked: store.options.unsupportedNotice, onChange: (e) => setOption('unsupportedNotice', e.target.checked) }),
-              '显示「暂不支持」格式提示卡'),
-          ) : null,
         ),
         React.createElement('div', { className: 'udc-body' },
-          React.createElement(Tree, { current, onOpen: setCurrent, refreshKey }),
+          React.createElement('div', { className: 'udc-side' },
+            React.createElement(Tree, { current, onOpen: setCurrent, refreshKey }),
+            React.createElement('div', { className: 'udc-actions-bar' },
+              React.createElement('button', { className: 'udc-header-btn', onClick: () => setRefreshKey((k) => k + 1) }, '↻ 刷新'),
+              React.createElement('button', { className: 'udc-header-btn' + (showOptions ? ' udc-header-btn-active' : ''), onClick: () => setShowOptions(!showOptions) }, '⚙ 选项'),
+              React.createElement('button', { className: 'udc-header-btn', onClick: () => setOpen(false) }, '✕ 关闭'),
+              showOptions ? React.createElement('div', { className: 'udc-options-pop' },
+                React.createElement('label', { className: 'udc-opt-row' },
+                  React.createElement('input', { type: 'checkbox', checked: store.options.codeEdit, onChange: (e) => setOption('codeEdit', e.target.checked) }),
+                  '代码/文本编辑（Ctrl/Cmd+S 保存）'),
+                React.createElement('label', { className: 'udc-opt-row' },
+                  React.createElement('input', { type: 'checkbox', checked: store.options.mdPreview, onChange: (e) => setOption('mdPreview', e.target.checked) }),
+                  'Markdown 编辑/预览双模式'),
+                React.createElement('label', { className: 'udc-opt-row' },
+                  React.createElement('input', { type: 'checkbox', checked: store.options.unsupportedNotice, onChange: (e) => setOption('unsupportedNotice', e.target.checked) }),
+                  '显示「暂不支持」格式提示卡'),
+              ) : null,
+            ),
+          ),
           React.createElement(PreviewPane, { current, onOpenLink: openLink, refreshKey })),
         React.createElement(Toasts, { toasts: store.toasts }),
       )
