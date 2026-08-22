@@ -26,11 +26,14 @@
 
 ### 2. UI Entry Points
 
-- **Sidebar bottom** "📄 Document Center" button (`sidebar.footer.action`) — toggles the workbench;
-- **Fullscreen workbench** (`shell.overlay`): top toolbar (root directory, refresh, options, close), left file tree (lazy loading, directory expansion, file size, **Font Awesome file icons by extension**), right preview/edit panel;
+- **Sidebar bottom** icon-only button (`sidebar.footer.action`, Font Awesome `fa-file-pen`) — toggles the workbench;
+- **Fullscreen workbench** (`shell.overlay`):
+  - Top toolbar shows the title and the **current workspace root path** (auto-detected from the DSH session; switching agents/sessions is sensed and the display/tree refresh automatically);
+  - Left file area: the file tree shows the workspace root at the top; lazy loading, click-to-expand directories, file sizes, **Font Awesome file icons by extension**; **"Expand All"** recursively opens every directory including hidden ones (`.git`, `.github`, `.vscode`, `node_modules` …), loading asynchronously in batches without freezing the page; **"Collapse All"** collapses everything and frees the cache; refresh / expand-all / collapse-all / options / close buttons sit below the tree (bottom-left);
+  - Right preview/edit panel: every toolbar has an "Open Externally" button (**click → editor picker menu → choose → open**, remembering your last choice); HTML preview also has an "Open in New Tab" button (`unidoc.openExternal`);
 - **Runtime card** (`tool.view.cordis`): shows the plugin's activation state with a one-click open button;
 - **Toast feedback**: loading state, save success/failure notices;
-- **External editor**: every preview/edit toolbar has an "open externally" button; the editor command (default `code`, e.g. `notepad` or an executable path) is configured in the options panel (session-level in-memory config, along with the code editing toggle, Markdown dual-mode toggle and "not supported" notice card toggle).
+- **Options panel** (session-level in-memory config): code editing toggle, Markdown dual-mode toggle, "not supported" notice card toggle, and an **editable external editor list** (add / remove / rename; defaults: VS Code, Sublime Text, Atom, Notepad++, Vim, Neovim, Typora).
 
 ### 3. Agent Tools
 
@@ -56,7 +59,8 @@ are validated with `fs.contains` to prevent directory traversal.
     2. Session `cwd` from the online agent list (`agents.list()`);
     3. `cwd` from recent session records (`sessionQuery.listSessions()`, newest-first);
     4. Fallback to `sandboxPolicy.workspaceRoot`.
-    Tool execution additionally honors the caller agent's (`exec.agent`) session `cwd` to precisely target the current workspace.
+    Tool execution additionally honors the caller agent's (`exec.agent`) session `cwd` to precisely target the current workspace;
+    `unidoc.root` accepts `refresh: true` to drop the cache and re-resolve, letting the client sense workspace switches.
   - **Write policy**: the plugin-context fs backend's default sandbox root is not the session workspace, so all write paths (save / create / edit) explicitly pass a `SandboxExecutionPolicy` (`workspaceRoot` = resolved workspace); tool calls respect session-mode overrides, e.g. `read-only` sessions reject writes;
   - Client RPC: `unidoc.root` / `unidoc.list` / `unidoc.read` / `unidoc.save` / `unidoc.create`
     / `unidoc.openExternal` (returns a raw-route URL for opening in a new tab) / `unidoc.openWithEditor`
@@ -68,7 +72,8 @@ are validated with `fs.contains` to prevent directory traversal.
   - Dependency declaration: `inject: ['slots', 'timer']`
   - Pure `React.createElement` (no JSX, no bundler); styles injected via `styles.insert` using `--dsw-alias-*` theme tokens (auto-adapts to light/dark themes)
   - Self-built lightweight Markdown renderer and code tokenizer/highlighter (inline parsing fully escaped, XSS-safe)
-  - File-tree icons embed official Font Awesome 6 Free Solid SVG paths mapped by extension (no FA font required in the GUI)
+  - File-tree icons embed official Font Awesome 6 Free Solid SVG paths mapped by extension (no FA font required in the GUI); the entry icon is `fa-file-pen`
+  - Workspace awareness: syncs via `unidoc.root(refresh)` on open and every 15s, refreshing the tree automatically on workspace switches; "Expand All" loads recursively in async batches (hidden directories included) without freezing on huge repos
   - All file I/O goes through `host.call` to the host side; never touches page globals directly
 
 ### Lifecycle
@@ -106,12 +111,36 @@ npm run build
 ```
 
 After activation:
-- A "📄 Document Center" entry appears at the bottom of the sidebar;
+- An icon-only entry (Font Awesome file-pen) appears at the bottom of the sidebar;
 - The `doc_read` / `doc_edit` / `doc_create` tools appear on the agent side.
 
 > Persistent deployment: to auto-load with Harness startup, migrate both sides' source
 > into a static plugin package (dsh-web-ui family style), or place it into the
 > corresponding preset under `~/.dsh/.agent-presets`.
+
+---
+
+## Configuration
+
+External editors are configured as a **list** (session-level in-memory state, cleared when the plugin unloads):
+
+- Open the Document Center → "⚙ Options" (bottom-left) → "External editor list";
+- Built-in defaults: VS Code (`code`), Sublime Text (`subl`), Atom (`atom`), Notepad++ (`notepad++`), Vim (`vim`), Neovim (`nvim`), Typora (`typora`);
+- Add / remove / rename entries freely: edit name & command per row, ✕ removes, the bottom "＋" adds a new editor;
+- Clicking "Open Externally" on any toolbar pops up the editor picker; choosing one calls `unidoc.openWithEditor` and **remembers your last choice** as the default for next time;
+- Command constraints: a bare command name or an executable path only (no spaces, no shell metacharacters), and it must be on the system `PATH` (e.g. VSCode's `code` requires "Install 'code' command" first); target file paths are always guarded by `fs.contains` against directory traversal.
+
+---
+
+## Changelog
+
+| Version | Highlights |
+| --- | --- |
+| v0.3.0 | Workspace detection & display; file-tree "Expand All / Collapse All" (hidden dirs included); external editor picker menu with an editable editor list; icon-only sidebar entry with the Font Awesome `fa-file-pen` icon |
+| v0.2.0 | Open HTML preview in a new tab; external editor integration (RPC + command config); Font Awesome file icons by extension in the tree; fixed missing `lib/` on git install that broke startup |
+| v0.1.0 | Initial release: Document Center workbench (file tree + multi-format preview/edit + save), agent tools `doc_read` / `doc_edit` / `doc_create` |
+
+Full details in [CHANGELOG.md](./CHANGELOG.md).
 
 ---
 

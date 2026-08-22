@@ -161,7 +161,12 @@ return {
     }
 
     /* ---------------- RPC：unidoc.root ---------------- */
-    harness.handle('unidoc.root', async () => ({ root: await getRoot(), rawPrefix: RAW_PREFIX }))
+    // refresh=true 时丢弃已缓存根目录并重新解析（候选：发起者 Agent 会话 cwd →
+    // 在线 Agent 列表 → 最近会话记录 → 兜底 workspaceRoot），供 Client 感知工作区切换
+    harness.handle('unidoc.root', async (args) => {
+      if (args && args.refresh) rootPromise = null
+      return { root: await getRoot(), rawPrefix: RAW_PREFIX }
+    })
 
     /* ---------------- RPC：unidoc.list ---------------- */
     harness.handle('unidoc.list', async (args) => {

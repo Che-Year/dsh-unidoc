@@ -1,11 +1,13 @@
 /* ============================================================================
  * dsh-unidoc — Client half
  * 通用文档中心（Universal Document Center）工作台：
- *   - 侧边栏底部「文档中心」入口（sidebar.footer.action）
+ *   - 侧边栏底部「文档中心」入口（sidebar.footer.action，仅图标，Font Awesome file-pen）
  *   - 全屏工作台（shell.overlay）：文件树 + 多格式预览/编辑 + Toast
+ *   - 工作区识别：打开时与周期（15s）经 unidoc.root 感知工作区切换并展示根目录
+ *   - 文件树：懒加载 + 「展开全部/折叠全部」（含 .git 等隐藏目录，异步分批加载）
  *   - 文件树图标：按扩展名映射 Font Awesome 图标（内嵌官方 SVG path）
- *   - HTML 预览「新标签页打开」（unidoc.openExternal）+ 各视图「外部编辑器打开」
- *     （unidoc.openWithEditor，命令可在选项面板配置）
+ *   - HTML 预览「新标签页打开」（unidoc.openExternal）+ 各视图「外部打开」
+ *     （unidoc.openWithEditor：点击 → 编辑器选择菜单 → 选择后打开，记住上次选择）
  *   - 运行卡片状态面板（tool.view.cordis key self）
  *
  * 纯 React.createElement（无 JSX），不依赖 window/document 全局；
@@ -24,7 +26,6 @@ return {
     styles.insert(`
 .udc-root{position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base,#1b1f27);color:var(--dsw-alias-label-primary,#e6e6e6);font-size:13px;line-height:1.5;pointer-events:auto;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
 .udc-header{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1,#2a2f3a);background:var(--dsw-alias-bg-layer-1,#222733);flex:none;position:relative}
-.udc-footer-label{font-size:12.5px}
 .udc-title{font-weight:600;font-size:14px;white-space:nowrap}
 .udc-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#9aa4b2);font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:12px}
 .udc-header-btn{background:transparent;border:1px solid var(--dsw-alias-border-l2,#3a4150);color:var(--dsw-alias-label-primary,#e6e6e6);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;white-space:nowrap}
@@ -115,7 +116,6 @@ return {
 .udc-options-pop{position:absolute;bottom:calc(100% + 6px);left:0;background:var(--dsw-alias-bg-overlay,#262b36);border:1px solid var(--dsw-alias-border-l2,#3a4150);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;z-index:20;box-shadow:0 6px 24px rgba(0,0,0,.4);min-width:220px}
 .udc-opt-row{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}
 .udc-opt-row input{cursor:pointer}
-.udc-opt-input-row{flex-direction:column;align-items:stretch;gap:4px;padding-top:8px;border-top:1px solid var(--dsw-alias-border-l1,#2a2f3a)}
 .udc-opt-label{font-size:12px;color:var(--dsw-alias-label-secondary,#9aa4b2)}
 .udc-opt-input{background:var(--dsw-alias-bg-base,#1b1f27);border:1px solid var(--dsw-alias-border-l2,#3a4150);color:var(--dsw-alias-label-primary,#e6e6e6);border-radius:6px;padding:4px 8px;font-size:12px;outline:none;font-family:ui-monospace,Consolas,"Courier New",monospace}
 .udc-opt-input:focus{border-color:var(--dsw-alias-brand-primary,#4f8cff)}
@@ -128,15 +128,54 @@ return {
 .udc-runcard-btn{border:1px solid var(--dsw-alias-border-l2,#3a4150);background:var(--dsw-alias-bg-layer-2,#2b3240);color:var(--dsw-alias-label-primary,#e6e6e6);border-radius:6px;padding:3px 12px;font-size:12px;cursor:pointer}
 .udc-runcard-btn:hover{border-color:var(--dsw-alias-brand-primary,#4f8cff)}
 .udc-runcard-hint{color:var(--dsw-alias-label-secondary,#9aa4b2);font-size:12px}
+.udc-title svg,.udc-runcard-title svg{display:inline-block;vertical-align:-2px;margin-right:4px}
+.udc-footer-ico svg{display:block}
+.udc-tree-root{padding:2px 12px 6px;font-size:11px;color:var(--dsw-alias-label-secondary,#9aa4b2);font-family:ui-monospace,Consolas,"Courier New",monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-bottom:1px solid var(--dsw-alias-border-l1,#2a2f3a)}
+.udc-expanding{font-size:11px;color:var(--dsw-alias-state-warn-primary,#d9a23f);margin-right:8px}
+.udc-menu-backdrop{position:fixed;inset:0;z-index:5}
+.udc-menu{position:fixed;z-index:30;min-width:220px;max-width:320px;max-height:60vh;overflow:auto;background:var(--dsw-alias-bg-overlay,#262b36);border:1px solid var(--dsw-alias-border-l2,#3a4150);border-radius:8px;padding:6px;box-shadow:0 6px 24px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:2px}
+.udc-menu-title{font-size:12px;color:var(--dsw-alias-label-secondary,#9aa4b2);padding:4px 8px 6px;border-bottom:1px solid var(--dsw-alias-border-l1,#2a2f3a);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.udc-menu-item{display:flex;align-items:center;gap:8px;width:100%;background:transparent;border:none;color:var(--dsw-alias-label-primary,#e6e6e6);border-radius:6px;padding:6px 8px;font-size:12.5px;cursor:pointer;text-align:left;white-space:nowrap}
+.udc-menu-item:hover{background:var(--dsw-alias-bg-layer-2,#2b3240)}
+.udc-menu-item-name{overflow:hidden;text-overflow:ellipsis}
+.udc-menu-item-cmd{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-secondary,#9aa4b2);font-family:ui-monospace,Consolas,"Courier New",monospace}
+.udc-menu-item-used{font-size:11px;color:var(--dsw-alias-brand-primary,#4f8cff);margin-left:4px}
+.udc-menu-cancel{color:var(--dsw-alias-label-secondary,#9aa4b2);border-top:1px solid var(--dsw-alias-border-l1,#2a2f3a);margin-top:4px}
+.udc-opt-editor-list{display:flex;flex-direction:column;gap:6px;padding-top:8px;border-top:1px solid var(--dsw-alias-border-l1,#2a2f3a)}
+.udc-opt-editor-row{display:flex;align-items:center;gap:6px}
+.udc-opt-editor-name{flex:0 0 96px;width:96px}
+.udc-opt-editor-cmd{flex:1;min-width:0}
+.udc-opt-editor-del{flex:none;background:transparent;border:1px solid var(--dsw-alias-border-l2,#3a4150);color:var(--dsw-alias-state-error-primary,#ff6b6b);border-radius:6px;padding:2px 8px;font-size:12px;cursor:pointer}
+.udc-opt-editor-del:hover{border-color:var(--dsw-alias-state-error-primary,#ff6b6b)}
+.udc-opt-editor-add{flex:none;background:var(--dsw-alias-bg-layer-2,#2b3240);border:1px solid var(--dsw-alias-border-l2,#3a4150);color:var(--dsw-alias-label-primary,#e6e6e6);border-radius:6px;padding:2px 10px;font-size:12px;cursor:pointer}
+.udc-opt-editor-add:hover{border-color:var(--dsw-alias-brand-primary,#4f8cff)}
+.udc-opt-hint{font-size:11px;color:var(--dsw-alias-label-secondary,#9aa4b2);line-height:1.5}
 `)
 
     /* ---------------- 会话级内存状态 ---------------- */
+    // 外部编辑器候选列表（可在选项面板增删改）；editorCmd 记录上次选择的编辑器
+    const DEFAULT_EDITORS = [
+      { name: 'VS Code', cmd: 'code' },
+      { name: 'Sublime Text', cmd: 'subl' },
+      { name: 'Atom', cmd: 'atom' },
+      { name: 'Notepad++', cmd: 'notepad++' },
+      { name: 'Vim', cmd: 'vim' },
+      { name: 'Neovim', cmd: 'nvim' },
+      { name: 'Typora', cmd: 'typora' },
+    ]
     const store = {
       open: false,
       root: '',
       rawPrefix: '',
       toasts: [],
-      options: { codeEdit: true, mdPreview: true, unsupportedNotice: true, editorCmd: 'code' },
+      options: {
+        codeEdit: true,
+        mdPreview: true,
+        unsupportedNotice: true,
+        editorCmd: 'code',
+        editors: DEFAULT_EDITORS.map((e) => ({ ...e })),
+      },
+      editorMenu: null, // { rel, x, y }：外部编辑器选择菜单
       listeners: new Set(),
     }
     let toastSeq = 0
@@ -153,6 +192,19 @@ return {
       }, 3200)
     }
     const setOption = (key, value) => { store.options = { ...store.options, [key]: value }; notify() }
+    const updateEditor = (i, patch) => {
+      const list = (store.options.editors || []).map((e, idx) => (idx === i ? { ...e, ...patch } : e))
+      setOption('editors', list)
+    }
+    const removeEditor = (i) => {
+      setOption('editors', (store.options.editors || []).filter((_, idx) => idx !== i))
+    }
+    const addEditor = (name, cmd) => {
+      const n = String(name || '').trim()
+      const c = String(cmd || '').trim()
+      if (!n || !c) { pushToast('请输入编辑器名称与命令', 'error'); return }
+      setOption('editors', [...(store.options.editors || []), { name: n, cmd: c }])
+    }
 
     // 启动时获取根目录与原始字节路由前缀（Host 已先于 Client 激活）
     host.call('unidoc.root')
@@ -215,20 +267,28 @@ return {
         pushToast('打开失败：' + String((e && e.message) || e), 'error')
       }
     }
-    const openWithEditor = async (rel) => {
-      const cmd = editorCmdOf()
+    const openWithEditor = async (rel, cmd) => {
+      const c = (cmd && String(cmd).trim()) || editorCmdOf()
       try {
-        const r = await host.call('unidoc.openWithEditor', { path: rel, editorCmd: cmd })
+        const r = await host.call('unidoc.openWithEditor', { path: rel, editorCmd: c })
         if (r && r.ok) pushToast('已用外部编辑器打开 ' + baseName(rel), 'success')
         else pushToast('打开失败：' + ((r && r.error) || '未知错误'), 'error')
       } catch (e) {
         pushToast('打开失败：' + String((e && e.message) || e), 'error')
       }
     }
+    // 点击「外部打开」→ 浮现编辑器选择菜单 → 选择后跳转打开（记住上次选择）
+    const openEditorMenu = (rel, evt) => {
+      store.editorMenu = { rel, x: evt && evt.clientX, y: evt && evt.clientY }
+      notify()
+    }
+    const closeEditorMenu = () => {
+      if (store.editorMenu) { store.editorMenu = null; notify() }
+    }
     const extEditorBtn = (rel) => React.createElement('button', {
       className: 'udc-viewbar-btn',
-      title: '用外部编辑器打开当前文件（' + editorCmdOf() + '）',
-      onClick: () => openWithEditor(rel),
+      title: '选择外部编辑器打开当前文件',
+      onClick: (e) => openEditorMenu(rel, e),
     }, '外部打开')
     const newTabBtn = (rel) => React.createElement('button', {
       className: 'udc-viewbar-btn',
@@ -885,20 +945,23 @@ return {
 
     /* ---------------- 组件：文件树 ---------------- */
     function Tree(props) {
-      const { current, onOpen, refreshKey } = props
+      const { current, onOpen, refreshKey, root, expandAllKey, collapseAllKey } = props
       const [cache, setCache] = React.useState({})
       const [expanded, setExpanded] = React.useState({ '': true })
       const [loading, setLoading] = React.useState({})
+      const [expanding, setExpanding] = React.useState(false)
+      const busyRef = React.useRef(false)
+      const sortEntries = (entries) => (entries || []).slice().sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+      })
       const load = async (rel, force) => {
         if (!force && cache[rel]) return
         setLoading((s) => ({ ...s, [rel]: true }))
         try {
           const r = await host.call('unidoc.list', { path: rel })
           if (r && r.ok) {
-            const entries = (r.entries || []).slice().sort((a, b) => {
-              if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
-              return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
-            })
+            const entries = sortEntries(r.entries)
             setCache((c) => ({ ...c, [rel]: entries }))
           } else {
             pushToast('加载目录失败：' + ((r && r.error) || '未知错误'), 'error')
@@ -914,6 +977,72 @@ return {
         setLoading({})
         load('', true)
       }, [refreshKey])
+
+      // 「展开全部」：异步逐层递归加载（unidoc.list 天然包含 .git 等隐藏目录），
+      // 分批并发（每批 8 个目录）并在每层让出主线程，超大仓库不卡页面；
+      // 目录数超过上限时停止并提示，避免渲染数万节点。
+      const runExpandAll = async () => {
+        if (busyRef.current) return
+        busyRef.current = true
+        setExpanding(true)
+        const MAX_DIRS = 3000
+        const CONCURRENCY = 8
+        const visited = new Set([''])
+        let frontier = ['']
+        let dirCount = 0
+        let capped = false
+        try {
+          while (frontier.length && dirCount < MAX_DIRS) {
+            const batch = frontier.slice(0, CONCURRENCY)
+            frontier = frontier.slice(CONCURRENCY)
+            const results = await Promise.all(batch.map(async (rel) => {
+              try {
+                const r = await host.call('unidoc.list', { path: rel })
+                if (r && r.ok) return { rel, entries: sortEntries(r.entries) }
+                return null
+              } catch (e) { return null }
+            }))
+            const nextCache = {}
+            for (const item of results) {
+              if (!item) continue
+              nextCache[item.rel] = item.entries
+              for (const e of item.entries) {
+                if (e.type !== 'dir') continue
+                const child = item.rel ? item.rel + '/' + e.name : e.name
+                if (visited.has(child)) continue
+                if (dirCount >= MAX_DIRS) { capped = true; break }
+                visited.add(child)
+                dirCount++
+                frontier.push(child)
+              }
+            }
+            if (Object.keys(nextCache).length) setCache((c) => ({ ...c, ...nextCache }))
+            // 每层让出主线程（定时器走 timer 服务，保持与 DSH 客户端规范一致）
+            await new Promise((resolve) => timer.timeout(resolve, 0))
+          }
+          setExpanded(Object.fromEntries([...visited].map((d) => [d, true])))
+          if (capped) pushToast('目录过多，已展开前 ' + MAX_DIRS + ' 个文件夹', 'info')
+          else pushToast('已展开全部目录（' + visited.size + ' 个文件夹）', 'success')
+        } catch (e) {
+          pushToast('展开全部失败：' + String((e && e.message) || e), 'error')
+        }
+        setExpanding(false)
+        busyRef.current = false
+      }
+
+      // 「折叠全部」：清空已加载缓存，仅保留根目录列表
+      const runCollapseAll = () => {
+        if (busyRef.current) return
+        setCache({})
+        setExpanded({ '': true })
+        setLoading({})
+        load('', true)
+        pushToast('已折叠全部目录', 'info')
+      }
+
+      React.useEffect(() => { if (expandAllKey > 0) runExpandAll() }, [expandAllKey])
+      React.useEffect(() => { if (collapseAllKey > 0) runCollapseAll() }, [collapseAllKey])
+
       const toggle = (rel) => {
         const next = { ...expanded, [rel]: !expanded[rel] }
         setExpanded(next)
@@ -954,7 +1083,9 @@ return {
         React.createElement('div', { className: 'udc-tree-header' },
           React.createElement('span', {}, '📂 工作区文件'),
           React.createElement('span', { style: { flex: 1 } }),
+          expanding ? React.createElement('span', { className: 'udc-expanding' }, '展开中…') : null,
           loading[''] ? React.createElement('span', { className: 'udc-size' }, '加载中…') : null),
+        root ? React.createElement('div', { className: 'udc-tree-root', title: root }, root) : null,
         ...rows)
     }
 
@@ -973,6 +1104,8 @@ return {
       filePpt:    { cls: 'fa-solid fa-file-powerpoint', vb: '0 0 384 512', path: 'M64 0C28.7 0 0 28.7 0 64L0 448c0 35.3 28.7 64 64 64l256 0c35.3 0 64-28.7 64-64l0-288-128 0c-17.7 0-32-14.3-32-32L224 0 64 0zM256 0l0 128 128 0L256 0zM136 240l68 0c42 0 76 34 76 76s-34 76-76 76l-44 0 0 32c0 13.3-10.7 24-24 24s-24-10.7-24-24l0-56 0-104c0-13.3 10.7-24 24-24zm68 104c15.5 0 28-12.5 28-28s-12.5-28-28-28l-44 0 0 56 44 0z' },
       fileVideo:  { cls: 'fa-solid fa-file-video', vb: '0 0 384 512', path: 'M64 0C28.7 0 0 28.7 0 64L0 448c0 35.3 28.7 64 64 64l256 0c35.3 0 64-28.7 64-64l0-288-128 0c-17.7 0-32-14.3-32-32L224 0 64 0zM256 0l0 128 128 0L256 0zM64 288c0-17.7 14.3-32 32-32l96 0c17.7 0 32 14.3 32 32l0 96c0 17.7-14.3 32-32 32l-96 0c-17.7 0-32-14.3-32-32l0-96zM300.9 397.9L256 368l0-64 44.9-29.9c2-1.3 4.4-2.1 6.8-2.1c6.8 0 12.3 5.5 12.3 12.3l0 103.4c0 6.8-5.5 12.3-12.3 12.3c-2.4 0-4.8-.7-6.8-2.1z' },
       fileAudio:  { cls: 'fa-solid fa-file-audio', vb: '0 0 384 512', path: 'M64 0C28.7 0 0 28.7 0 64L0 448c0 35.3 28.7 64 64 64l256 0c35.3 0 64-28.7 64-64l0-288-128 0c-17.7 0-32-14.3-32-32L224 0 64 0zM256 0l0 128 128 0L256 0zm2 226.3c37.1 22.4 62 63.1 62 109.7s-24.9 87.3-62 109.7c-7.6 4.6-17.4 2.1-22-5.4s-2.1-17.4 5.4-22C269.4 401.5 288 370.9 288 336s-18.6-65.5-46.5-82.3c-7.6-4.6-10-14.4-5.4-22s14.4-10 22-5.4zm-91.9 30.9c6 2.5 9.9 8.3 9.9 14.8l0 128c0 6.5-3.9 12.3-9.9 14.8s-12.9 1.1-17.4-3.5L113.4 376 80 376c-8.8 0-16-7.2-16-16l0-48c0-8.8 7.2-16 16-16l33.4 0 35.3-35.3c4.6-4.6 11.5-5.9 17.4-3.5zm51 34.9c6.6-5.9 16.7-5.3 22.6 1.3C249.8 304.6 256 319.6 256 336s-6.2 31.4-16.3 42.7c-5.9 6.6-16 7.1-22.6 1.3s-7.1-16-1.3-22.6c5.1-5.7 8.1-13.1 8.1-21.3s-3.1-15.7-8.1-21.3c-5.9-6.6-5.3-16.7 1.3-22.6z' },
+      // 插件入口 / 标题图标：fa-file-pen（铅笔字迹的文件图标，非单纯铅笔）
+      filePen:    { cls: 'fa-solid fa-file-pen', vb: '0 0 576 512', path: 'M0 64C0 28.7 28.7 0 64 0L224 0l0 128c0 17.7 14.3 32 32 32l128 0 0 125.7-86.8 86.8c-10.3 10.3-17.5 23.1-21 37.2l-18.7 74.9c-2.3 9.2-1.8 18.8 1.3 27.5L64 512c-35.3 0-64-28.7-64-64L0 64zm384 64l-128 0L256 0 384 128zM549.8 235.7l14.4 14.4c15.6 15.6 15.6 40.9 0 56.6l-29.4 29.4-71-71 29.4-29.4c15.6-15.6 40.9-15.6 56.6 0zM311.9 417L441.1 287.8l71 71L382.9 487.9c-4.1 4.1-9.2 7-14.9 8.4l-60.1 15c-5.5 1.4-11.2-.2-15.2-4.2s-5.6-9.7-4.2-15.2l15-60.1c1.4-5.6 4.3-10.8 8.4-14.9z' },
     }
     // 按类别聚合扩展名（顺序即优先级）；未命中回退默认 file 图标
     const FA_BY_EXT = [
@@ -991,11 +1124,16 @@ return {
       for (const g of FA_BY_EXT) if (g.exts.has(ext)) return g.icon
       return FA.file
     }
+    const faGlyph = (ico, size) => React.createElement('svg', {
+      viewBox: ico.vb,
+      width: size || 12,
+      height: size || 12,
+      fill: 'currentColor',
+      'aria-hidden': true,
+    }, React.createElement('path', { d: ico.path }))
     const faIconEl = (ext) => {
       const ico = faFileIcon(ext)
-      return React.createElement('span', { className: 'udc-ico ' + ico.cls, title: ext || '文件' },
-        React.createElement('svg', { viewBox: ico.vb, width: 12, height: 12, fill: 'currentColor', 'aria-hidden': true },
-          React.createElement('path', { d: ico.path })))
+      return React.createElement('span', { className: 'udc-ico ' + ico.cls, title: ext || '文件' }, faGlyph(ico, 12))
     }
 
     /* ---------------- 组件：预览面板 ---------------- */
@@ -1102,30 +1240,117 @@ return {
         toasts.map((t) => React.createElement('div', { key: t.id, className: 'udc-toast udc-toast-' + t.type }, t.text)))
     }
 
+    /* ---------------- 组件：外部编辑器选择菜单 ---------------- */
+    function EditorMenu() {
+      const store = useStore()
+      const menu = store.editorMenu
+      if (!menu) return null
+      const editors = store.options.editors && store.options.editors.length
+        ? store.options.editors
+        : DEFAULT_EDITORS
+      const usedCmd = editorCmdOf()
+      const pick = (cmd) => {
+        setOption('editorCmd', cmd) // 记住上次选择的编辑器作为默认
+        openWithEditor(menu.rel, cmd)
+        closeEditorMenu()
+      }
+      const style = {
+        left: menu.x != null ? menu.x : 12,
+        top: menu.y != null ? menu.y : 12,
+      }
+      if (typeof window !== 'undefined') {
+        if (style.left + 280 > window.innerWidth) style.left = Math.max(8, window.innerWidth - 290)
+        if (style.top + 340 > window.innerHeight) style.top = Math.max(8, window.innerHeight - 350)
+      }
+      return React.createElement(React.Fragment, null,
+        React.createElement('div', { className: 'udc-menu-backdrop', onClick: closeEditorMenu }),
+        React.createElement('div', { className: 'udc-menu', style },
+          React.createElement('div', { className: 'udc-menu-title' }, '选择外部编辑器打开 ' + baseName(menu.rel)),
+          editors.map((ed, i) => React.createElement('button', {
+            key: i,
+            className: 'udc-menu-item',
+            title: ed.cmd,
+            onClick: () => pick(ed.cmd),
+          },
+            React.createElement('span', { className: 'udc-menu-item-name' }, ed.name),
+            ed.cmd === usedCmd ? React.createElement('span', { className: 'udc-menu-item-used' }, '上次使用') : null,
+            React.createElement('span', { className: 'udc-menu-item-cmd' }, ed.cmd))),
+          React.createElement('button', { className: 'udc-menu-item udc-menu-cancel', onClick: closeEditorMenu }, '取消')),
+      )
+    }
+
     /* ---------------- 组件：文档中心工作台（shell.overlay） ---------------- */
     function DocumentCenter() {
       const store = useStore()
       const [current, setCurrent] = React.useState(null)
       const [refreshKey, setRefreshKey] = React.useState(0)
       const [showOptions, setShowOptions] = React.useState(false)
+      const [expandAllKey, setExpandAllKey] = React.useState(0)
+      const [collapseAllKey, setCollapseAllKey] = React.useState(0)
+      const [newName, setNewName] = React.useState('')
+      const [newCmd, setNewCmd] = React.useState('')
+
+      // 工作区识别：打开工作台时同步一次，此后每 15s 经 unidoc.root(refresh) 感知
+      // 工作区切换；根目录变化时自动刷新文件树并提示。
+      const syncRoot = async () => {
+        let changed = false
+        try {
+          const r = await host.call('unidoc.root', { refresh: true })
+          if (r && r.root) {
+            changed = r.root !== store.root
+            store.root = String(r.root)
+          }
+          if (r && r.rawPrefix) store.rawPrefix = String(r.rawPrefix)
+          notify()
+        } catch (e) { /* 保持现状 */ }
+        return changed
+      }
+      React.useEffect(() => {
+        if (!store.open) return
+        let alive = true
+        let handle = null
+        const loop = async () => {
+          if (!alive) return
+          try {
+            const changed = await syncRoot()
+            if (changed && alive) setRefreshKey((k) => k + 1)
+          } catch (e) { /* 忽略 */ }
+          if (alive) handle = timer.timeout(loop, 15000)
+        }
+        loop()
+        return () => { alive = false; if (handle) handle() }
+      }, [store.open])
+
       if (!store.open) return null
       const openLink = (rel) => {
         const clean = String(rel || '').replace(/^\.\//, '').replace(/^\//, '')
         if (clean) setCurrent(clean)
       }
-      // 布局：头部只保留标题与根目录路径；刷新/选项/关闭统一排列在左侧文件树
+      // 布局：头部只保留标题与根目录路径；操作键统一排列在左侧文件树
       // 下方（左下角），从根本上避免与其他插件悬浮按钮（如 better-sidebar 的
       // 折叠侧边栏图标）在右上角位置重合。
       return React.createElement('div', { className: 'udc-root' },
         React.createElement('div', { className: 'udc-header' },
-          React.createElement('span', { className: 'udc-title' }, '📄 通用文档中心'),
+          React.createElement('span', { className: 'udc-title' },
+            faGlyph(FA.filePen, 14),
+            React.createElement('span', null, '通用文档中心')),
           React.createElement('span', { className: 'udc-path', title: store.root }, store.root || '…'),
         ),
         React.createElement('div', { className: 'udc-body' },
           React.createElement('div', { className: 'udc-side' },
-            React.createElement(Tree, { current, onOpen: setCurrent, refreshKey }),
+            React.createElement(Tree, { current, onOpen: setCurrent, refreshKey, root: store.root, expandAllKey, collapseAllKey }),
             React.createElement('div', { className: 'udc-actions-bar' },
-              React.createElement('button', { className: 'udc-header-btn', onClick: () => setRefreshKey((k) => k + 1) }, '↻ 刷新'),
+              React.createElement('button', {
+                className: 'udc-header-btn',
+                onClick: () => {
+                  syncRoot().then((changed) => {
+                    setRefreshKey((k) => k + 1)
+                    if (changed) pushToast('工作区已更新：' + store.root, 'success')
+                  })
+                },
+              }, '↻ 刷新'),
+              React.createElement('button', { className: 'udc-header-btn', onClick: () => setExpandAllKey((k) => k + 1) }, '⇲ 展开全部'),
+              React.createElement('button', { className: 'udc-header-btn', onClick: () => setCollapseAllKey((k) => k + 1) }, '⇱ 折叠全部'),
               React.createElement('button', { className: 'udc-header-btn' + (showOptions ? ' udc-header-btn-active' : ''), onClick: () => setShowOptions(!showOptions) }, '⚙ 选项'),
               React.createElement('button', { className: 'udc-header-btn', onClick: () => setOpen(false) }, '✕ 关闭'),
               showOptions ? React.createElement('div', { className: 'udc-options-pop' },
@@ -1138,42 +1363,83 @@ return {
                 React.createElement('label', { className: 'udc-opt-row' },
                   React.createElement('input', { type: 'checkbox', checked: store.options.unsupportedNotice, onChange: (e) => setOption('unsupportedNotice', e.target.checked) }),
                   '显示「暂不支持」格式提示卡'),
-                React.createElement('div', { className: 'udc-opt-row udc-opt-input-row' },
-                  React.createElement('label', { className: 'udc-opt-label', htmlFor: 'udc-editor-cmd' }, '外部编辑器命令'),
-                  React.createElement('input', {
-                    id: 'udc-editor-cmd',
-                    className: 'udc-opt-input',
-                    type: 'text',
-                    value: store.options.editorCmd,
-                    placeholder: 'code / notepad / 可执行文件路径',
-                    spellCheck: false,
-                    onChange: (e) => setOption('editorCmd', e.target.value),
-                  })),
+                React.createElement('div', { className: 'udc-opt-editor-list' },
+                  React.createElement('label', { className: 'udc-opt-label' }, '外部编辑器列表（点「外部打开」时选择）'),
+                  (store.options.editors || []).map((ed, i) =>
+                    React.createElement('div', { key: i, className: 'udc-opt-editor-row' },
+                      React.createElement('input', {
+                        className: 'udc-opt-input udc-opt-editor-name',
+                        type: 'text',
+                        value: ed.name,
+                        spellCheck: false,
+                        placeholder: '名称',
+                        onChange: (e) => updateEditor(i, { name: e.target.value }),
+                      }),
+                      React.createElement('input', {
+                        className: 'udc-opt-input udc-opt-editor-cmd',
+                        type: 'text',
+                        value: ed.cmd,
+                        spellCheck: false,
+                        placeholder: '命令（code / notepad / 可执行文件路径）',
+                        onChange: (e) => updateEditor(i, { cmd: e.target.value }),
+                      }),
+                      React.createElement('button', { className: 'udc-opt-editor-del', title: '删除该编辑器', onClick: () => removeEditor(i) }, '✕'))),
+                  React.createElement('div', { className: 'udc-opt-editor-row' },
+                    React.createElement('input', {
+                      id: 'udc-editor-new-name',
+                      className: 'udc-opt-input udc-opt-editor-name',
+                      type: 'text',
+                      value: newName,
+                      spellCheck: false,
+                      placeholder: '新编辑器名称',
+                      onChange: (e) => setNewName(e.target.value),
+                    }),
+                    React.createElement('input', {
+                      id: 'udc-editor-new-cmd',
+                      className: 'udc-opt-input udc-opt-editor-cmd',
+                      type: 'text',
+                      value: newCmd,
+                      spellCheck: false,
+                      placeholder: '命令',
+                      onChange: (e) => setNewCmd(e.target.value),
+                    }),
+                    React.createElement('button', {
+                      className: 'udc-opt-editor-add',
+                      onClick: () => {
+                        addEditor(newName, newCmd)
+                        setNewName('')
+                        setNewCmd('')
+                      },
+                    }, '＋')),
+                  React.createElement('div', { className: 'udc-opt-hint' },
+                    '默认使用上次选择的编辑器（当前：' + editorCmdOf() + '）。命令仅允许命令名或可执行文件路径（不含空格），且需在系统 PATH 中。')),
               ) : null,
             ),
           ),
           React.createElement(PreviewPane, { current, onOpenLink: openLink, refreshKey })),
         React.createElement(Toasts, { toasts: store.toasts }),
+        React.createElement(EditorMenu, null),
       )
     }
 
-    /* ---------------- 组件：侧边栏底部入口 ---------------- */
-    function FooterAction(props) {
+    /* ---------------- 组件：侧边栏底部入口（仅图标） ---------------- */
+    function FooterAction() {
       const store = useStore()
       return React.createElement('button', {
         className: 'udc-footer-btn' + (store.open ? ' udc-footer-btn-active' : ''),
         onClick: () => setOpen(!store.open),
         title: '通用文档中心（dsh-unidoc）',
       },
-        React.createElement('span', { className: 'udc-footer-ico' }, '📄'),
-        props.wide ? React.createElement('span', { className: 'udc-footer-label' }, '文档中心') : null)
+        React.createElement('span', { className: 'udc-footer-ico' }, faGlyph(FA.filePen, 14)))
     }
 
     /* ---------------- 组件：运行卡状态面板 ---------------- */
     function RunCard() {
       const store = useStore()
       return React.createElement('div', { className: 'udc-runcard' },
-        React.createElement('span', { className: 'udc-runcard-title' }, '📄 dsh-unidoc 通用文档中心'),
+        React.createElement('span', { className: 'udc-runcard-title' },
+          faGlyph(FA.filePen, 14),
+          'dsh-unidoc 通用文档中心'),
         React.createElement('button', { className: 'udc-runcard-btn', onClick: () => setOpen(true) }, store.open ? '文档中心已打开' : '打开文档中心'),
         React.createElement('span', { className: 'udc-runcard-hint' }, '侧边栏底部入口 · Agent 工具 doc_read / doc_edit / doc_create 已注册'),
       )
@@ -1182,7 +1448,7 @@ return {
     /* ---------------- 注册到 Slot ---------------- */
     slots.inject('sidebar.footer.action', () => slots.register(
       { name: 'sidebar.footer.action', id: 'unidoc.open', order: 20, label: '文档中心' },
-      (props) => React.createElement(FooterAction, { wide: !!(props && props.wide) }),
+      () => React.createElement(FooterAction, null),
     ))
     slots.inject('shell.overlay', () => slots.register(
       { name: 'shell.overlay', id: 'unidoc.center', order: 60 },

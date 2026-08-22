@@ -25,14 +25,17 @@
 
 ### 2. 界面入口
 
-- **侧边栏底部**「📄 文档中心」按钮（`sidebar.footer.action`）——打开/关闭工作台；
+- **侧边栏底部**「📝 铅笔文件」图标按钮（`sidebar.footer.action`，纯图标无文字，Font Awesome `fa-file-pen`）——打开/关闭工作台；
 - **全屏工作台**（`shell.overlay`）：
-  - 顶部仅显示标题与根目录路径；
-  - 左侧为文件区（文件树：懒加载、目录展开、文件大小），**文件图标按扩展名映射 Font Awesome 标准图标**（代码/文档/图片/PDF/Office/压缩包/音视频等），刷新 / 选项 / 关闭三个操作键统一排列在文件区下方（左下角），从布局上避免与其他插件悬浮按钮（如 better-sidebar 的折叠侧边栏图标）在右上角位置重合；
-  - 右侧为预览/编辑面板：所有视图工具栏均有「外部打开」按钮（用外部编辑器打开当前文件），HTML 预览另有「新标签页」按钮（`window.open` raw 路由 URL）；
+  - 顶部显示标题与**当前工作区根目录路径**（自动识别当前 DSH 会话工作区，切换 Agent / 会话时自动感知并更新显示）；
+  - 左侧为文件区：
+    - 文件树顶部显示工作区根目录；文件树支持懒加载、点击目录展开/折叠、文件大小，**文件图标按扩展名映射 Font Awesome 标准图标**（代码/文档/图片/PDF/Office/压缩包/音视频等）；
+    - **「展开全部」**：一键递归展开工作区全部目录（含 `.git`、`.github`、`.vscode`、`node_modules` 等隐藏目录），异步分批加载并每层让出主线程，超大仓库不卡页面；**「折叠全部」**一键收起并释放缓存；
+    - 刷新 / 展开全部 / 折叠全部 / 选项 / 关闭操作键统一排列在文件区下方（左下角），从布局上避免与其他插件悬浮按钮（如 better-sidebar 的折叠侧边栏图标）在右上角位置重合；
+  - 右侧为预览/编辑面板：所有视图工具栏均有「外部打开」按钮（**点击 → 浮现编辑器选择菜单 → 选择 → 跳转打开**，并记住上次选择的编辑器），HTML 预览另有「新标签页」按钮（`window.open` raw 路由 URL）；
 - **运行卡片**（`tool.view.cordis`）：显示插件激活状态与一键打开按钮；
 - **Toast 反馈**：加载 Loading 状态、保存成功/失败提示；
-- **选项面板**（会话级内存配置，从文件区下方「⚙ 选项」键向上弹出）：代码编辑开关、Markdown 双模式开关、「暂不支持」提示卡开关、**外部编辑器命令**（默认 `code`，可填 `notepad` 或编辑器可执行文件路径）。
+- **选项面板**（会话级内存配置，从文件区下方「⚙ 选项」键向上弹出）：代码编辑开关、Markdown 双模式开关、「暂不支持」提示卡开关、**外部编辑器列表**（增删改，自定义名称与命令，默认 VS Code / Sublime Text / Atom / Notepad++ / Vim / Neovim / Typora）。
 
 ### 3. Agent 集成工具
 
@@ -58,7 +61,8 @@
     2. 在线 Agent 列表的会话 `cwd`（`agents.list()`）；
     3. 最近会话记录的 `cwd`（`sessionQuery.listSessions()`，newest-first）；
     4. 兜底 `sandboxPolicy.workspaceRoot`。
-    工具执行时额外以调用者 Agent（`exec.agent`）的会话 `cwd` 为准，保证精准命中当前工作区。
+    工具执行时额外以调用者 Agent（`exec.agent`）的会话 `cwd` 为准，保证精准命中当前工作区；
+    `unidoc.root` 支持 `refresh: true` 丢弃缓存重新解析，供 Client 感知工作区切换。
   - **写入策略**：插件上下文中 fs 后端默认沙箱根不是会话工作区，所有写路径（保存/创建/编辑）
     显式传递 `SandboxExecutionPolicy`（`workspaceRoot` = 解析出的工作区；工具调用尊重会话模式覆盖，
     如 `read-only` 会话拒绝写入）；
@@ -76,8 +80,10 @@
   - 纯 `React.createElement`（无 JSX、无打包器），样式经 `styles.insert` 注入
     并使用 `--dsw-alias-*` 主题 token（自动适配亮/暗主题）
   - 自研轻量 Markdown 渲染器与代码分词高亮器（行内解析全部转义，防 XSS）
-  - 文件树图标内嵌 Font Awesome 6 Free Solid 官方 SVG path（按扩展名映射），
-    不依赖 GUI 是否内置 FA 字体
+  - 文件树图标内嵌 Font Awesome 6 Free Solid 官方 SVG path（按扩展名映射，含入口
+    `fa-file-pen` 图标），不依赖 GUI 是否内置 FA 字体
+  - 工作区识别：打开工作台时与运行期间（每 15s）经 `unidoc.root(refresh)` 感知工作区切换，
+    自动刷新文件树；「展开全部」异步分批递归加载（含隐藏目录），超大仓库不卡页面
   - 所有文件 IO 经 `host.call` 走 Host 半端，不直接触碰页面全局
 
 ### 生命周期
@@ -115,11 +121,39 @@ npm run build
 ```
 
 激活后：
-- 侧边栏底部出现「📄 文档中心」入口；
+- 侧边栏底部出现纯图标入口（Font Awesome 铅笔文件图标，悬停显示说明）；
 - Agent 侧出现 `doc_read` / `doc_edit` / `doc_create` 工具。
 
 > 持久化部署：如需随 Harness 启动自动加载，可将两端源码迁移为静态插件包
 > （`dsh-web-ui` 全家桶风格），或放入 `~/.dsh/.agent-presets` 对应的预设中。
+
+---
+
+## 配置说明
+
+外部编辑器以**列表**形式配置（会话级内存状态，随插件卸载消失）：
+
+- 打开文档中心 → 左下角「⚙ 选项」→「外部编辑器列表」；
+- 默认内置：VS Code（`code`）、Sublime Text（`subl`）、Atom（`atom`）、
+  Notepad++（`notepad++`）、Vim（`vim`）、Neovim（`nvim`）、Typora（`typora`）；
+- 支持**增删改**：每一行可修改名称与命令，✕ 删除，末行「＋」添加新编辑器；
+- 点击视图工具栏「外部打开」时弹出选择菜单，选择后调用 `unidoc.openWithEditor`
+  打开文件，并**记住上次选择的编辑器**作为下次默认；
+- 命令约束：仅允许命令名或可执行文件路径（不含空格、不含 shell 元字符），
+  且需在系统 `PATH` 中（如 VSCode 的 `code` 命令需先执行「Install 'code' command」）；
+  目标文件路径一律经 `fs.contains` 校验，杜绝目录穿越。
+
+---
+
+## 更新日志
+
+| 版本 | 说明 |
+| --- | --- |
+| v0.3.0 | 工作区识别与展示；文件树「展开全部/折叠全部」（含隐藏目录）；外部编辑器选择菜单与列表配置；侧边栏入口精简为纯图标并更换为 Font Awesome `fa-file-pen` 图标 |
+| v0.2.0 | HTML 预览新标签页打开；外部编辑器集成（RPC + 命令配置）；文件树按扩展名映射 Font Awesome 图标；修复 git 安装缺少 `lib/` 导致启动报错 |
+| v0.1.0 | 初始版本：文档中心工作台（文件树 + 多格式预览/编辑 + 保存）、Agent 工具 `doc_read` / `doc_edit` / `doc_create` |
+
+完整变更记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
