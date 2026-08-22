@@ -28,7 +28,7 @@
 
 - **Sidebar bottom** icon-only button (`sidebar.footer.action`, Font Awesome `fa-file-pen`) — toggles the workbench;
 - **Fullscreen workbench** (`shell.overlay`):
-  - Top toolbar shows the title and the **current workspace root path** (auto-detected from the DSH session; switching agents/sessions is sensed and the display/tree refresh automatically);
+  - Top toolbar shows the title and the **current workspace root path** (auto-detected from the DSH session; switching agents/sessions is sensed — on open the root is refreshed first and the tree reloads, then a 15s poll keeps them in sync, so the top path and the tree always match);
   - Left file area: the file tree shows the workspace root at the top; lazy loading, click-to-expand directories, file sizes, **Font Awesome file icons by extension**; **"Expand All"** recursively opens every directory including hidden ones (`.git`, `.github`, `.vscode`, `node_modules` …), loading asynchronously in batches without freezing the page; **"Collapse All"** collapses everything and frees the cache; refresh / expand-all / collapse-all / options / close buttons sit below the tree (bottom-left);
   - Right preview/edit panel: every toolbar has an "Open Externally" button (**click → editor picker menu → choose → open**, remembering your last choice); HTML preview also has an "Open in New Tab" button (`unidoc.openExternal`);
 - **Runtime card** (`tool.view.cordis`): shows the plugin's activation state with a one-click open button;
@@ -136,6 +136,7 @@ External editors are configured as a **list** (session-level in-memory state, cl
 
 | Version | Highlights |
 | --- | --- |
+| v0.3.1 | **Fixed: file tree not refreshing after a workspace switch** — reopening the Document Center after switching agents/sessions now resets and reloads the tree with the new workspace's files, with no stale data left behind; the top path and the tree stay consistent |
 | v0.3.0 | Workspace detection & display; file-tree "Expand All / Collapse All" (hidden dirs included); external editor picker menu with an editable editor list; icon-only sidebar entry with the Font Awesome `fa-file-pen` icon |
 | v0.2.0 | Open HTML preview in a new tab; external editor integration (RPC + command config); Font Awesome file icons by extension in the tree; fixed missing `lib/` on git install that broke startup |
 | v0.1.0 | Initial release: Document Center workbench (file tree + multi-format preview/edit + save), agent tools `doc_read` / `doc_edit` / `doc_create` |

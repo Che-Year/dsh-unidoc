@@ -3,7 +3,8 @@
  * 通用文档中心（Universal Document Center）工作台：
  *   - 侧边栏底部「文档中心」入口（sidebar.footer.action，仅图标，Font Awesome file-pen）
  *   - 全屏工作台（shell.overlay）：文件树 + 多格式预览/编辑 + Toast
- *   - 工作区识别：打开时与周期（15s）经 unidoc.root 感知工作区切换并展示根目录
+ *   - 工作区识别：打开时先刷新根目录并无条件重载文件树，运行期每 15s 感知切换；
+ *     根目录变化时自动重置文件树（清缓存、重置展开、重载）并保持与顶部路径一致
  *   - 文件树：懒加载 + 「展开全部/折叠全部」（含 .git 等隐藏目录，异步分批加载）
  *   - 文件树图标：按扩展名映射 Font Awesome 图标（内嵌官方 SVG path）
  *   - HTML 预览「新标签页打开」（unidoc.openExternal）+ 各视图「外部打开」
@@ -971,12 +972,16 @@ return {
         }
         setLoading((s) => ({ ...s, [rel]: false }))
       }
+      // 文件树数据生命周期与「根目录 + 刷新键」绑定：
+      //   - refreshKey 变化（手动刷新 / 打开时强制重载 / 展开折叠操作）→ 重置并重载
+      //   - root 变化（工作区切换，syncRoot 感知后更新 store.root）→ 清空树数据、
+      //     懒加载缓存与展开状态，以新工作区根目录重新加载，杜绝旧工作区残留
       React.useEffect(() => {
         setCache({})
         setExpanded({ '': true })
         setLoading({})
         load('', true)
-      }, [refreshKey])
+      }, [refreshKey, root])
 
       // 「展开全部」：异步逐层递归加载（unidoc.list 天然包含 .git 等隐藏目录），
       // 分批并发（每批 8 个目录）并在每层让出主线程，超大仓库不卡页面；
@@ -1290,8 +1295,12 @@ return {
       const [newName, setNewName] = React.useState('')
       const [newCmd, setNewCmd] = React.useState('')
 
-      // 工作区识别：打开工作台时同步一次，此后每 15s 经 unidoc.root(refresh) 感知
-      // 工作区切换；根目录变化时自动刷新文件树并提示。
+      // 工作区识别与同步：
+      //   1) 打开工作台时：先以 unidoc.root(refresh) 重新解析根目录，再**无条件**重载
+      //      文件树——打开瞬间文件树会以 Host 缓存旧根挂载，必须以刷新后的最新根覆盖，
+      //      避免「顶部路径已更新、文件树残留旧工作区」；
+      //   2) 运行期间每 15s 周期感知工作区切换：根目录变化 → 清空选中文件、重载文件树并提示。
+      // 文件树自身的重置/重载由 Tree 的 [refreshKey, root] 依赖驱动（见 Tree 组件）。
       const syncRoot = async () => {
         let changed = false
         try {
@@ -1305,19 +1314,33 @@ return {
         } catch (e) { /* 保持现状 */ }
         return changed
       }
+      const applyWorkspaceSwitch = () => {
+        setCurrent(null) // 工作区已变化：清空选中文件，避免预览残留旧工作区文件
+        setRefreshKey((k) => k + 1)
+        pushToast('工作区已切换：' + store.root, 'success')
+      }
       React.useEffect(() => {
         if (!store.open) return
         let alive = true
         let handle = null
+        const syncOnce = async () => {
+          if (!alive) return
+          let changed = false
+          try { changed = await syncRoot() } catch (e) { /* 忽略 */ }
+          if (!alive) return
+          if (changed) applyWorkspaceSwitch()
+          else setRefreshKey((k) => k + 1) // 无条件以最新根目录重载，杜绝旧工作区残留
+        }
         const loop = async () => {
           if (!alive) return
           try {
             const changed = await syncRoot()
-            if (changed && alive) setRefreshKey((k) => k + 1)
+            if (changed && alive) applyWorkspaceSwitch()
           } catch (e) { /* 忽略 */ }
           if (alive) handle = timer.timeout(loop, 15000)
         }
-        loop()
+        syncOnce()
+        handle = timer.timeout(loop, 15000)
         return () => { alive = false; if (handle) handle() }
       }, [store.open])
 
@@ -1345,7 +1368,10 @@ return {
                 onClick: () => {
                   syncRoot().then((changed) => {
                     setRefreshKey((k) => k + 1)
-                    if (changed) pushToast('工作区已更新：' + store.root, 'success')
+                    if (changed) {
+                      setCurrent(null)
+                      pushToast('工作区已更新：' + store.root, 'success')
+                    }
                   })
                 },
               }, '↻ 刷新'),
