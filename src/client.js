@@ -1376,11 +1376,14 @@ return {
               React.createElement('button', {
                 className: 'udc-header-btn',
                 onClick: () => {
+                  // 手动刷新：先以 unidoc.root(refresh) 重新解析根目录，再无条件重载
+                  // 文件树（展开状态与滚动位置随 refreshKey 重置到根目录视图）；
+                  // 若检测到工作区已切换，则同时清空选中文件并提示
                   syncRoot().then((changed) => {
                     setRefreshKey((k) => k + 1)
                     if (changed) {
                       setCurrent(null)
-                      pushToast('工作区已更新：' + store.root, 'success')
+                      pushToast('工作区已切换，文件树已刷新：' + store.root, 'success')
                     }
                   })
                 },
