@@ -1,6 +1,6 @@
 {
   "name": "dsh-unidoc",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "通用文档中心（Universal Document Center）— DeepSeek Harness 文档预览/编辑/管理插件（静态包形态：lib/index.js host 外壳 + lib/client.js 浏览器 bundle）",
   "license": "MIT",
   "type": "module",
