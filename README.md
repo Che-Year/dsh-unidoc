@@ -56,11 +56,14 @@
 
 - **Host 半端**（`src/host.js`，运行于 DSH Node 进程）
   - 依赖声明：`inject: ['fs', 'webServer', 'sandboxPolicy']`
-  - **根目录解析**（多级候选，取第一个真实存在的目录）：
-    1. 当前发起者 Agent 的会话 `cwd`（`agents.currentInitiator()` → `session.header.cwd`）；
-    2. 在线 Agent 列表的会话 `cwd`（`agents.list()`）；
-    3. 最近会话记录的 `cwd`（`sessionQuery.listSessions()`，newest-first）；
-    4. 兜底 `sandboxPolicy.workspaceRoot`。
+  - **根目录解析**（多级候选，同一 `cwd` 去重，取第一个真实存在的目录）：
+    1. 当前发起者 Agent 的会话 `cwd`（`agents.currentInitiator()` → `session.header.cwd`）——
+       仅在 Agent 工具调用上下文有效，浏览器 RPC 位于 initiator 边界外时返回 `undefined`；
+    2. **最近创建的会话**的 `cwd`（`sessionQuery.listSessions()`，newest-first，按 `createdAt` 降序）——
+       **浏览器 RPC 场景的主信号**：切换工作区（新建 / 激活会话）后，最近创建的会话即当前工作区；
+    3. 在线 Agent 列表的会话 `cwd`（`agents.list()`，注册顺序旧在前新在后）——
+       **从最新注册向旧遍历**，与「最近会话优先」信号一致，避免命中仍在线但已切换走的旧工作区 Agent；
+    4. 兜底 `sandboxPolicy.workspaceRoot`（每次动态读取）。
     工具执行时额外以调用者 Agent（`exec.agent`）的会话 `cwd` 为准，保证精准命中当前工作区；
     `unidoc.root` 支持 `refresh: true` 丢弃缓存重新解析，供 Client 感知工作区切换。
   - **写入策略**：插件上下文中 fs 后端默认沙箱根不是会话工作区，所有写路径（保存/创建/编辑）
@@ -84,6 +87,8 @@
     `fa-file-pen` 图标），不依赖 GUI 是否内置 FA 字体
   - 工作区识别：打开工作台时与运行期间（每 5s）经 `unidoc.root(refresh)` 感知工作区切换，
     自动重置文件树（清缓存、重置展开/选中/滚动位置）并重新加载当前工作区文件结构；
+    Host 端候选重排为「最近会话优先」，修复浏览器 RPC 场景下 `agents.currentInitiator()`
+    失效导致根目录命中旧工作区 Agent 的问题；
     「展开全部」异步分批递归加载（含隐藏目录），超大仓库不卡页面
   - 所有文件 IO 经 `host.call` 走 Host 半端，不直接触碰页面全局
 
@@ -150,6 +155,7 @@ npm run build
 
 | 版本 | 说明 |
 | --- | --- |
+| v0.3.3 | **修复切换工作区后文件树仍显示旧工作区（根因级）**：浏览器 RPC 位于 Agent initiator 边界之外，`agents.currentInitiator()` 失效、`agents.list()` 命中仍在线但已切换走的旧工作区 Agent；Host 根目录候选重排为「最近会话优先」（最近创建的会话 → 在线 Agent 从新到旧 → 动态兜底根），文件树 / 路径状态在刷新与切换时完全重置 |
 | v0.3.2 | **工作区切换感知更及时 + 文件树完全重置**：运行期感知轮询缩短为 5s；切换工作区后自动检测变化并重置文件树（清空缓存、重置展开状态、选中路径与滚动位置到根目录、关闭预览），Toast 提示「工作区已切换，文件树已刷新」 |
 | v0.3.1 | **修复工作区切换后文件树不刷新的问题**：切换 Agent / 会话后重新打开文档中心，文件树自动重置并加载新工作区文件结构，不再残留旧工作区数据；顶部路径与文件树保持一致 |
 | v0.3.0 | 工作区识别与展示；文件树「展开全部/折叠全部」（含隐藏目录）；外部编辑器选择菜单与列表配置；侧边栏入口精简为纯图标并更换为 Font Awesome `fa-file-pen` 图标 |
