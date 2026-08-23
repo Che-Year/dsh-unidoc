@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.6] - 2026-08-23
+
+### Fixed
+
+- **修复工作区切换后文件树 / 根目录不刷新（固定显示旧工作区）**。症状：切换工作区后 `unidoc.root` 仍解析到固定目录（如 PunctFlow），无论当前选中哪个工作区。修复要点：
+  - **根因 1（Client 权威信号时序）**：`currentSessionCwd()` 依赖 DSH 客户端运行时 `sessions` 服务，插件激活瞬间该服务可能尚未就绪，启动时的首次上报拿到空值；现改为**启动后延迟 1.5s 重试上报**，且 `unidoc.root` 每次调用（打开工作台 / 5s 轮询 / 手动刷新）都携带 hintCwd，确保权威信号最终送达 Host；
+  - **根因 2（Host 候选恒命中 createdAt 最大的会话）**：多个已存在会话并存时，`listSessions`（按 `createdAt` 降序）与「当前选中会话」无关——即使切到已创建的历史会话，候选仍命中创建最晚的工作区；`hintCwd` 权威信号（`sessions.list.getSnapshot().current` → `byId[id].cwd`，官方 `useSessions` 数据源）一旦生效即彻底解决；
+  - **可观测性**：Host 端 `unidoc.root` 新增 hintCwd 收付诊断日志（仅在值变化时打印，避免 5s 轮询刷屏），排障时可直接从终端确认「Client 的当前会话工作区是否到达 Host」；
+  - **自动化测试**：新增 `tests/root-resolution.test.mjs`（42 项断言，`node tests/root-resolution.test.mjs`）——覆盖 hintCwd 权威信号（有效 / 空串 / 非目录 / 空白 / 变化跟随 / 持久性）、候选解析顺序（发起者 → 在线 Agent 新→旧 → live 会话 → 幽灵会话 → 兜底根）、路径锚定与防目录穿越、Agent 工具（doc_read / doc_edit / doc_create）以调用者会话 cwd 为准。
+
 ## [0.3.5] - 2026-08-23
 
 ### Fixed
