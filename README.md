@@ -162,6 +162,7 @@ npm run build
 
 | 版本 | 说明 |
 | --- | --- |
+| v0.3.5 | **修复 v0.3.4 回归：侧边栏插件图标消失（Client 半端崩溃）**：DSH 客户端运行时无 `timer` 服务，v0.3.4 的 `ctx[name]` 全量转发触发 Cordis Proxy 抛错（`cannot get property "timer" without inject`）导致 Client apply 崩溃；恢复 timer 桥接前置 + 其余服务安全转发（try/catch），hintCwd 工作区隔离能力保留 |
 | v0.3.4 | **修复「无论打开哪个工作区都显示旧工作区」的工作区隔离（权威信号级）**：Client 从运行时 `sessions` 服务读取「当前选中会话」工作区随 `unidoc.root(hintCwd)` 上报，Host 优先采用；无 hint 时候选改为 live 会话优先（排除持久化幽灵会话），切回历史会话也不再残留旧根 |
 | v0.3.3 | **修复切换工作区后文件树仍显示旧工作区（根因级）**：浏览器 RPC 位于 Agent initiator 边界之外，`agents.currentInitiator()` 失效、`agents.list()` 命中仍在线但已切换走的旧工作区 Agent；Host 根目录候选重排为「最近会话优先」（最近创建的会话 → 在线 Agent 从新到旧 → 动态兜底根），文件树 / 路径状态在刷新与切换时完全重置 |
 | v0.3.2 | **工作区切换感知更及时 + 文件树完全重置**：运行期感知轮询缩短为 5s；切换工作区后自动检测变化并重置文件树（清空缓存、重置展开状态、选中路径与滚动位置到根目录、关闭预览），Toast 提示「工作区已切换，文件树已刷新」 |
