@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.4] - 2026-08-23
+
+### Fixed
+
+- **修复「无论打开哪个工作区都显示旧工作区 A」的工作区隔离问题（权威信号级修复）**：v0.3.3 的「最近创建会话优先」候选在**切回早已创建的历史会话**（resume 持久化会话）时失效——`sessionQuery.listSessions()` 按 `createdAt` 降序返回**全部会话（含持久化「幽灵」记录）**，历史会话的 `createdAt` 可能最大而永远排第一，导致根目录恒命中旧工作区。修复要点：
+  - **Client 端权威信号**：通过 DSH 客户端运行时 `sessions` 服务读取「当前选中会话」的工作区 `cwd`（`sessions.manager.selected` → `sessions.list.getSnapshot().byId[id].cwd`），随每次 `unidoc.root(hintCwd)` 上报 Host——无论切换到新建会话还是早已创建的历史会话，都能精确命中当前工作区；
+  - **Host 端 hintCwd 优先**：`unidoc.root` 接收 `hintCwd`（校验为目录后）直接作为根目录，`unidoc.list / read / save / create` 等全部 RPC 以它为锚；传空串则清除 hint 走候选兜底；
+  - **候选兜底增强**：无 hint 时，`collectCandidates` 改为「在线 Agent 从最新注册向旧遍历」优先，`sessionQuery.listSessions()` 中 **live 会话**按 `createdAt` 降序排在**持久化幽灵会话**之前，兜底 `sandboxPolicy.workspaceRoot` 动态读取；
+  - **静态包形态桥接**：`build-client.mjs` 的 `fakeCtx.get` 改为转发真实 ctx 服务（含 `sessions`），使静态 bundle 形态也能读取当前会话工作区。
+- **RPC 传输错误缓解**：修复根目录解析后，不再因「请求了错误工作区路径」触发 `Failed to fetch` 类错误；切换工作区瞬间的路由窗口期竞态由 Client 容错（静默重试），若问题根源涉及 DSH 框架层（会话切换时插件上下文重挂载），属后端框架行为。
+
 ## [0.3.3] - 2026-08-22
 
 ### Fixed
