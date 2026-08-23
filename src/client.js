@@ -214,17 +214,20 @@ return {
 
     // 读取「当前选中会话」的工作区 cwd（DSH 客户端运行时 sessions 服务的权威信号）。
     // 防御式读取：任何一步缺失/异常都返回空串（Host 端将回退到候选解析）。
-    // 访问路径（dsh-client-runtime）：sessions.manager.selected → 当前选中会话 id；
-    // sessions.list.getSnapshot().byId[id].cwd → 该会话的工作区目录。
-    // 静态包形态下由 build-client.mjs 将 fakeCtx.get 转发到真实 ctx 服务（含 sessions）。
+    // 访问路径（dsh-client-runtime，官方 useSessions 数据源）：
+    //   sessions.list.getSnapshot().current → 当前选中会话 id（list 快照，含 current）；
+    //   sessions.list.getSnapshot().byId[id].cwd → 该会话的工作区目录；
+    //   sessions.manager.selected → 与 list.current 等价（回退路径）。
+    // 静态包形态下由 build-client.mjs 将 fakeCtx.get 安全转发到真实 ctx 服务（含 sessions）。
     const currentSessionCwd = () => {
       try {
         const sessionsSvc = ctx.get('sessions')
         if (!sessionsSvc) return ''
         const list = sessionsSvc.list && typeof sessionsSvc.list.getSnapshot === 'function'
           ? sessionsSvc.list.getSnapshot() : null
-        const selected = (sessionsSvc.manager && sessionsSvc.manager.selected)
-          || (list && list.current)
+        const selected = (list && list.current)
+          || (sessionsSvc.manager && sessionsSvc.manager.selected)
+          || ''
         if (!selected) return ''
         const cwd = list && list.byId && list.byId[selected] && list.byId[selected].cwd
         return typeof cwd === 'string' ? cwd : ''
@@ -234,14 +237,20 @@ return {
     }
 
     // 启动时获取根目录与原始字节路由前缀（Host 已先于 Client 激活）；
-    // 同时上报当前会话工作区（hintCwd）作为权威根目录信号
-    host.call('unidoc.root', { hintCwd: currentSessionCwd() })
+    // 同时上报当前会话工作区（hintCwd）作为权威根目录信号。
+    // 若插件激活时 sessions 服务尚未就绪（currentSessionCwd 返回空串），
+    // 延迟 1.5s 重试一次，确保权威信号最终送达 Host。
+    const reportRoot = () => host.call('unidoc.root', { hintCwd: currentSessionCwd() })
       .then((r) => {
         if (r && r.root) store.root = String(r.root)
         if (r && r.rawPrefix) store.rawPrefix = String(r.rawPrefix)
         notify()
       })
       .catch(() => {})
+    reportRoot()
+    try {
+      timer.timeout(() => reportRoot(), 1500)
+    } catch (e) { /* 定时器不可用则跳过延迟重试 */ }
 
     const useStore = () => {
       const [, force] = React.useReducer((x) => x + 1, 0)

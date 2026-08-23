@@ -198,11 +198,19 @@ return {
     // 「当前会话工作区」（来自 Client 运行时 sessions 服务的权威信号，优先使用；
     // 传空串则清除 hint 走候选兜底），供 Client 感知工作区切换——即使切换到的
     // 是早已创建的历史会话，也能精确命中当前工作区，杜绝「永远显示 A」。
+    // 诊断日志：hintCwd 收付情况仅在值变化时打印（避免 5s 轮询刷屏），
+    // 用于确证 Client 的权威信号是否到达 Host（排障工作区切换不刷新）。
+    let lastHintLog = null
     harness.handle('unidoc.root', async (args) => {
       if (args && args.refresh) rootPromise = null
       if (args && typeof args.hintCwd === 'string') {
         const t = String(args.hintCwd).trim()
         hintRoot = (t && (await isDir(t))) ? t : null
+        const log = hintRoot || '(none)'
+        if (log !== lastHintLog) {
+          lastHintLog = log
+          console.log('dsh-unidoc: hintCwd =', log)
+        }
       }
       return { root: await getRoot(), rawPrefix: RAW_PREFIX }
     })
