@@ -162,6 +162,7 @@ npm run build
 
 | 版本 | 说明 |
 | --- | --- |
+| v0.3.6 | **修复工作区切换后文件树/根目录不刷新（固定旧工作区）**：Client 权威信号（`sessions.list.getSnapshot().current`）启动延迟重试确保送达 Host；Host 候选在多个已存在会话并存时不再恒命中 createdAt 最大的会话；新增 `hintCwd` 收付诊断日志与 42 项自动化测试（`tests/root-resolution.test.mjs`） |
 | v0.3.5 | **修复 v0.3.4 回归：侧边栏插件图标消失（Client 半端崩溃）**：DSH 客户端运行时无 `timer` 服务，v0.3.4 的 `ctx[name]` 全量转发触发 Cordis Proxy 抛错（`cannot get property "timer" without inject`）导致 Client apply 崩溃；恢复 timer 桥接前置 + 其余服务安全转发（try/catch），hintCwd 工作区隔离能力保留 |
 | v0.3.4 | **修复「无论打开哪个工作区都显示旧工作区」的工作区隔离（权威信号级）**：Client 从运行时 `sessions` 服务读取「当前选中会话」工作区随 `unidoc.root(hintCwd)` 上报，Host 优先采用；无 hint 时候选改为 live 会话优先（排除持久化幽灵会话），切回历史会话也不再残留旧根 |
 | v0.3.3 | **修复切换工作区后文件树仍显示旧工作区（根因级）**：浏览器 RPC 位于 Agent initiator 边界之外，`agents.currentInitiator()` 失效、`agents.list()` 命中仍在线但已切换走的旧工作区 Agent；Host 根目录候选重排为「最近会话优先」（最近创建的会话 → 在线 Agent 从新到旧 → 动态兜底根），文件树 / 路径状态在刷新与切换时完全重置 |
@@ -178,6 +179,8 @@ npm run build
 ## 开发与测试
 
 - `node scripts/check.js`：两端源码语法冒烟测试；
+- `node tests/root-resolution.test.mjs`：**自动化测试（42 项断言）**——根目录解析与工作区
+  隔离（hintCwd 权威信号 / 候选顺序 / 路径安全 / Agent 工具）；
 - `tests/verification.md`：手工 E2E 验证清单（挂载、文件树、各格式预览、保存、
   Toast、工具调用、边界用例）；
 - 开发规范：不修改 `~/.dsh/source/current/` 下任何官方源码；只通过动态插件

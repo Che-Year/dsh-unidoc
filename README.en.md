@@ -138,6 +138,7 @@ External editors are configured as a **list** (session-level in-memory state, cl
 
 | Version | Highlights |
 | --- | --- |
+| v0.3.6 | **Fixed: tree / root not refreshing after a workspace switch (stuck on an old workspace)** — the client's authoritative signal (`sessions.list.getSnapshot().current`) is now retried after a delayed startup so it always reaches the host; the no-hint fallback no longer always hits the session with the largest `createdAt` when multiple existing sessions coexist; added a `hintCwd` receipt log and a 42-assertion automated suite (`tests/root-resolution.test.mjs`) |
 | v0.3.5 | **Fixed v0.3.4 regression: sidebar plugin icon disappeared (client-half crash)** — the DSH client runtime has no `timer` service, so v0.3.4's blanket `ctx[name]` forwarding made the Cordis proxy throw (`cannot get property "timer" without inject`) and crashed the whole client `apply`; the timer bridge is restored (checked first) and the remaining services are forwarded safely (try/catch, `undefined` on absence) while keeping the v0.3.4 `hintCwd` workspace-isolation capability |
 | v0.3.4 | **Fixed: "always showing the old workspace A" (authoritative-signal fix)** — the client reads the currently selected session's workspace `cwd` from the runtime `sessions` service and sends it as `unidoc.root(hintCwd)`; the host prefers it, and the no-hint fallback now prioritizes live sessions over persisted "ghost" records, so switching to an old historical session no longer leaves a stale root |
 | v0.3.3 | **Fixed: tree still showing the old workspace after a switch (root cause)** — browser RPCs run outside the agent initiator boundary, so `agents.currentInitiator()` was unavailable and `agents.list()` hit a stale online agent from the workspace you just left; the host root resolution was reworked to "recent session first" (newest session → online agents newest-first → dynamic fallback root), and the tree / path state is fully reset on refresh and workspace switches |
@@ -154,6 +155,7 @@ Full details in [CHANGELOG.md](./CHANGELOG.md).
 ## Development & Testing
 
 - `node scripts/check.js`: syntax smoke test for both sides' source;
+- `node tests/root-resolution.test.mjs`: **automated suite (42 assertions)** — root resolution & workspace isolation (hintCwd authoritative signal / candidate order / path safety / agent tools);
 - `tests/verification.md`: manual E2E verification checklist (mounting, file tree, per-format preview, saving, Toasts, tool calls, edge cases);
 - Development conventions: never modify any official source under `~/.dsh/source/current/`; mount capabilities only through the official dynamic-plugin mechanism; reuse official Service/Slot capabilities (`fs`, `webServer`, `slots`, `timer`).
 
