@@ -28,7 +28,7 @@
 
 - **Sidebar bottom** icon-only button (`sidebar.footer.action`, Font Awesome `fa-file-pen`) — toggles the workbench;
 - **Fullscreen workbench** (`shell.overlay`):
-  - Top toolbar shows the title and the **current workspace root path** (auto-detected from the DSH session; switching agents/sessions is sensed — on open the root is refreshed first and the tree reloads, then a 5s poll keeps them in sync; after a switch the tree is **fully reset**: cache cleared, expanded state, selected path and scroll position reset to the root, preview closed, so the top path and the tree always match);
+  - Top toolbar shows the title and the **current workspace root path** (auto-detected from the DSH session; switching agents/sessions is sensed — on open the root is refreshed first and the tree reloads, then a 5s poll keeps them in sync; every call reports the **currently selected session's** workspace as the authoritative `hintCwd`, so any workspace — including an old historical session — is hit precisely with no stale root; after a switch the tree is **fully reset**: cache cleared, expanded state, selected path and scroll position reset to the root, preview closed, so the top path and the tree always match);
   - Left file area: the file tree shows the workspace root at the top; lazy loading, click-to-expand directories, file sizes, **Font Awesome file icons by extension**; **"Expand All"** recursively opens every directory including hidden ones (`.git`, `.github`, `.vscode`, `node_modules` …), loading asynchronously in batches without freezing the page; **"Collapse All"** collapses everything and frees the cache; refresh / expand-all / collapse-all / options / close buttons sit below the tree (bottom-left);
   - Right preview/edit panel: every toolbar has an "Open Externally" button (**click → editor picker menu → choose → open**, remembering your last choice); HTML preview also has an "Open in New Tab" button (`unidoc.openExternal`);
 - **Runtime card** (`tool.view.cordis`): shows the plugin's activation state with a one-click open button;
@@ -54,11 +54,13 @@ are validated with `fs.contains` to prevent directory traversal.
 
 - **Host side** (`src/host.js`, runs in the DSH Node process)
   - Dependency declaration: `inject: ['fs', 'webServer', 'sandboxPolicy']`
-  - **Root directory resolution** (multi-level candidates, duplicate `cwd` collapsed, first existing directory wins):
+  - **Root directory resolution** (priority, highest first):
+    0. **Client `hintCwd` (authoritative)** — the client reads the **currently selected session's** workspace `cwd` from the DSH client runtime `sessions` service (`sessions.manager.selected` → `sessions.list.getSnapshot().byId[id].cwd`) and sends it with every `unidoc.root(hintCwd)` call; the host uses it directly (after verifying it is a directory) — no matter whether you switched to a brand-new session or an **old historical one**, the current workspace is hit precisely, so the tree can never keep showing a stale workspace;
     1. The initiating agent's session `cwd` (`agents.currentInitiator()` → `session.header.cwd`) — only valid in agent tool-call contexts; browser RPCs run outside the initiator boundary and yield `undefined`;
-    2. **The most recently created session's** `cwd` (`sessionQuery.listSessions()`, newest-first, ordered by `createdAt` desc) — the primary signal for browser RPCs: after a workspace switch (new/activated session) the newest session is the current workspace;
-    3. Session `cwd` from the online agent list (`agents.list()`, registration order — old first, new last) — iterated **newest-registered first**, consistent with "recent session first", avoiding a stale online agent from the workspace you just left;
-    4. Fallback to `sandboxPolicy.workspaceRoot` (re-read dynamically each time).
+    2. Session `cwd` from the online agent list (`agents.list()`, registration order — old first, new last) — iterated **newest-registered first**; the just-activated session is most likely the current workspace;
+    3. **live sessions** from `sessionQuery.listSessions()` ordered by `createdAt` desc — excludes persisted "ghost" sessions (a historical session's `createdAt` can be the largest while it is no longer the current workspace);
+    4. All `sessionQuery.listSessions()` records (including persisted) ordered by `createdAt` desc;
+    5. Fallback to `sandboxPolicy.workspaceRoot` (re-read dynamically each time).
     Tool execution additionally honors the caller agent's (`exec.agent`) session `cwd` to precisely target the current workspace;
     `unidoc.root` accepts `refresh: true` to drop the cache and re-resolve, letting the client sense workspace switches.
   - **Write policy**: the plugin-context fs backend's default sandbox root is not the session workspace, so all write paths (save / create / edit) explicitly pass a `SandboxExecutionPolicy` (`workspaceRoot` = resolved workspace); tool calls respect session-mode overrides, e.g. `read-only` sessions reject writes;
@@ -73,7 +75,7 @@ are validated with `fs.contains` to prevent directory traversal.
   - Pure `React.createElement` (no JSX, no bundler); styles injected via `styles.insert` using `--dsw-alias-*` theme tokens (auto-adapts to light/dark themes)
   - Self-built lightweight Markdown renderer and code tokenizer/highlighter (inline parsing fully escaped, XSS-safe)
   - File-tree icons embed official Font Awesome 6 Free Solid SVG paths mapped by extension (no FA font required in the GUI); the entry icon is `fa-file-pen`
-  - Workspace awareness: syncs via `unidoc.root(refresh)` on open and every 5s, fully resetting the tree (cache, expanded state, selected path, scroll position) and reloading the current workspace's files on switches; the host candidate order was reworked to "recent session first", fixing the case where `agents.currentInitiator()` is unavailable to browser RPCs and the root resolved to a stale online agent from the old workspace; "Expand All" loads recursively in async batches (hidden directories included) without freezing on huge repos
+  - Workspace awareness: syncs via `unidoc.root(refresh)` on open and every 5s, fully resetting the tree (cache, expanded state, selected path, scroll position) and reloading the current workspace's files on switches; every call carries the **currently selected session's** workspace `cwd` as `hintCwd` (from the runtime `sessions` service), so the host hits the current workspace precisely even when you switch to an old historical session — no stale root can survive; without a hint the host falls back to candidates (online agents newest-first → live sessions → persisted sessions → fallback root); "Expand All" loads recursively in async batches (hidden directories included) without freezing on huge repos
   - All file I/O goes through `host.call` to the host side; never touches page globals directly
 
 ### Lifecycle
@@ -136,6 +138,7 @@ External editors are configured as a **list** (session-level in-memory state, cl
 
 | Version | Highlights |
 | --- | --- |
+| v0.3.4 | **Fixed: "always showing the old workspace A" (authoritative-signal fix)** — the client reads the currently selected session's workspace `cwd` from the runtime `sessions` service and sends it as `unidoc.root(hintCwd)`; the host prefers it, and the no-hint fallback now prioritizes live sessions over persisted "ghost" records, so switching to an old historical session no longer leaves a stale root |
 | v0.3.3 | **Fixed: tree still showing the old workspace after a switch (root cause)** — browser RPCs run outside the agent initiator boundary, so `agents.currentInitiator()` was unavailable and `agents.list()` hit a stale online agent from the workspace you just left; the host root resolution was reworked to "recent session first" (newest session → online agents newest-first → dynamic fallback root), and the tree / path state is fully reset on refresh and workspace switches |
 | v0.3.2 | **Faster workspace-switch sensing + full tree reset** — runtime polling shortened to 5s; after a workspace switch the tree is fully reset (cache cleared, expanded state, selected path and scroll position reset to the root, preview closed) with a "workspace switched, tree refreshed" toast |
 | v0.3.1 | **Fixed: file tree not refreshing after a workspace switch** — reopening the Document Center after switching agents/sessions now resets and reloads the tree with the new workspace's files, with no stale data left behind; the top path and the tree stay consistent |
