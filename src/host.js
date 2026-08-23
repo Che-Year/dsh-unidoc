@@ -9,17 +9,20 @@
  *   - HTTP 路由：GET /dsh-unidoc/raw?p=<相对路径>（图片 / PDF / HTML 原始字节，含安全响应头）
  *   - 动态 Agent 工具：doc_read / doc_edit / doc_create
  *
- * 根目录解析（多级候选，同一 cwd 去重，取第一个真实存在的目录）：
+ * 根目录解析（优先级从高到低）：
+ *   0) **Client hintCwd**（权威信号）：Client 端从运行时 sessions 服务读取
+ *      「当前选中会话」的工作区 cwd，随 unidoc.root RPC 传入，Host 校验为目录后
+ *      直接作为根目录——无论切换到新建会话还是早已创建的历史会话，都能精确命中
+ *      当前工作区，杜绝「永远显示旧工作区 A」
  *   1) 当前发起者 Agent 的会话 cwd（agents.currentInitiator()）
  *      —— 仅在 Agent 工具调用上下文有效；浏览器 RPC（Client→Host）位于
  *         Agent 驱动链（initiator 边界）之外，此候选返回 undefined
- *   2) 最近创建的会话 cwd（sessionQuery.listSessions()，newest-first，
- *      按 createdAt 降序）—— 浏览器 RPC 场景的主信号：切换工作区
- *      （新建 / 激活会话）后，最近创建的会话即当前工作区
- *   3) 在线 Agent 列表的会话 cwd（agents.list()，注册顺序）——
- *      从最新注册（末尾）向旧（开头）遍历，与「最近会话优先」信号一致，
- *      避免命中仍在线但已切换走的旧工作区 Agent
- *   4) 兜底：sandboxPolicy.workspaceRoot（每次动态读取，部署级 fallback）
+ *   2) 在线 Agent 列表的会话 cwd（agents.list()，注册顺序）——
+ *      从最新注册（末尾）向旧（开头）遍历，刚激活的会话最可能是当前工作区
+ *   3) sessionQuery.listSessions() 中 **live 会话** 按 createdAt 降序——
+ *      排除持久化「幽灵」会话（历史会话 createdAt 可能最大，却早已不是当前工作区）
+ *   4) sessionQuery.listSessions() 全部（含 persisted）按 createdAt 降序
+ *   5) 兜底：sandboxPolicy.workspaceRoot（每次动态读取，部署级 fallback）
  * 工具执行时额外以调用者 Agent（exec.agent）的会话 cwd 为准，保证精准命中当前工作区。
  *
  * 安全边界：所有路径解析都以工作区根目录为锚，经 fs.contains 校验，杜绝目录穿越；
@@ -62,6 +65,16 @@ return {
     }
 
     /* ---------------- 根目录解析 ---------------- */
+    // 候选顺序（同一 cwd 去重，取第一个真实存在的目录）——仅供浏览器 RPC 无
+    // hintCwd（Client 未读到当前会话）时兜底：
+    //   1) 当前发起者 Agent（仅 Agent 工具调用上下文有效）
+    //   2) 在线 Agent 列表（注册顺序旧在前、新在后）——从最新注册向旧遍历，
+    //      「刚激活的会话」最可能是当前工作区
+    //   3) sessionQuery.listSessions() 中 **live 会话**（在线 Agent 所属）按
+    //      createdAt 降序——排除持久化「幽灵」会话（历史会话可能 createdAt 最大，
+    //      却早已不是当前工作区）
+    //   4) sessionQuery.listSessions() 全部（含 persisted）按 createdAt 降序
+    //   5) 兜底：sandboxPolicy.workspaceRoot（每次动态读取）
     const collectCandidates = async () => {
       const out = []
       const seen = new Set()
@@ -79,22 +92,8 @@ return {
           if (initiator && initiator.session && initiator.session.header) add(initiator.session.header.cwd)
         }
       } catch (e) { /* 忽略 */ }
-      // 2) 最近创建的会话（newest-first，按 createdAt 降序）——
-      //    浏览器 RPC 场景的主信号：切换工作区后最近创建的会话即当前工作区
-      try {
-        const q = ctx.get('sessionQuery')
-        if (q && typeof q.listSessions === 'function') {
-          const records = await q.listSessions()
-          if (Array.isArray(records)) {
-            for (const r of records) {
-              if (r && r.header) add(r.header.cwd)
-            }
-          }
-        }
-      } catch (e) { /* 忽略 */ }
-      // 3) 在线 Agent 列表（注册顺序：旧在前、新在后）——
-      //    从最新注册向旧遍历，与「最近会话优先」信号一致，
-      //    避免命中仍在线但已切换走的旧工作区 Agent
+      // 2) 在线 Agent 列表（注册顺序：旧在前、新在后）——
+      //    从最新注册向旧遍历：刚激活 / 刚创建的会话 Agent 排在末尾
       try {
         const agentsSvc = ctx.get('agents')
         if (agentsSvc && typeof agentsSvc.list === 'function') {
@@ -107,7 +106,22 @@ return {
           }
         }
       } catch (e) { /* 忽略 */ }
-      // 4) 兜底：部署级 workspaceRoot（每次动态读取）
+      // 3) + 4) 最近创建的会话（newest-first，按 createdAt 降序）——
+      //    live 在线会话优先，持久化「幽灵」会话排后（历史会话的 createdAt 可能
+      //    最大，直接全量取第一条会命中早已不是当前工作区的旧会话）
+      try {
+        const q = ctx.get('sessionQuery')
+        if (q && typeof q.listSessions === 'function') {
+          const records = await q.listSessions()
+          if (Array.isArray(records)) {
+            const live = records.filter((r) => r && r.live && r.header)
+            const rest = records.filter((r) => r && !r.live && r.header)
+            for (const r of live) add(r.header.cwd)
+            for (const r of rest) add(r.header.cwd)
+          }
+        }
+      } catch (e) { /* 忽略 */ }
+      // 5) 兜底：部署级 workspaceRoot（每次动态读取）
       try { add(policy.workspaceRoot) } catch (e) { /* 忽略 */ }
       return out
     }
@@ -122,8 +136,12 @@ return {
       }
     }
 
+    // 根目录缓存：hintRoot 为 Client 显式声明的「当前会话工作区」（权威信号，优先使用）；
+    // rootPromise 为候选解析结果缓存（无 hint 时使用），unidoc.root(refresh) 会清空
     let rootPromise = null
+    let hintRoot = null
     const getRoot = () => {
+      if (hintRoot) return Promise.resolve(hintRoot)
       if (!rootPromise) {
         rootPromise = (async () => {
           const candidates = await collectCandidates()
@@ -176,10 +194,16 @@ return {
     }
 
     /* ---------------- RPC：unidoc.root ---------------- */
-    // refresh=true 时丢弃已缓存根目录并重新解析（候选：发起者 Agent 会话 cwd →
-    // 在线 Agent 列表 → 最近会话记录 → 兜底 workspaceRoot），供 Client 感知工作区切换
+    // refresh=true 时丢弃已缓存根目录并重新解析；hintCwd 为 Client 显式声明的
+    // 「当前会话工作区」（来自 Client 运行时 sessions 服务的权威信号，优先使用；
+    // 传空串则清除 hint 走候选兜底），供 Client 感知工作区切换——即使切换到的
+    // 是早已创建的历史会话，也能精确命中当前工作区，杜绝「永远显示 A」。
     harness.handle('unidoc.root', async (args) => {
       if (args && args.refresh) rootPromise = null
+      if (args && typeof args.hintCwd === 'string') {
+        const t = String(args.hintCwd).trim()
+        hintRoot = (t && (await isDir(t))) ? t : null
+      }
       return { root: await getRoot(), rawPrefix: RAW_PREFIX }
     })
 

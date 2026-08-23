@@ -114,9 +114,14 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       const fakeCtx = {
         get(name) {
-          if (name === 'slots') return ctx.slots;
+          // 优先转发真实 ctx 服务（slots / timer / sessions 等都由 DSH 客户端
+          // 运行时提供，含 rootCtx.reflect.provide 的 sessions 服务——Client 借此
+          // 读取「当前选中会话」的工作区 cwd，作为 unidoc.root 的 hintCwd 权威信号）；
+          // timer 在真实服务缺失时回退到桥接实现
+          const value = ctx[name];
+          if (value !== void 0) return value;
           if (name === 'timer') return timer;
-          return undefined;
+          return void 0;
         },
         effect(fn, label) {
           return ctx.effect(fn, label);

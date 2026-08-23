@@ -5,8 +5,11 @@
  *   - 全屏工作台（shell.overlay）：文件树 + 多格式预览/编辑 + Toast
  *   - 工作区识别：打开时先刷新根目录并无条件重载文件树，运行期每 5s 感知切换；
  *     根目录变化时自动重置文件树（清缓存、重置展开/选中/滚动位置、重载）
- *     并保持与顶部路径一致（Host 端候选重排为「最近会话优先」，修复
- *     浏览器 RPC 场景下 currentInitiator 失效导致命中旧工作区 Agent 的问题）
+ *     并保持与顶部路径一致
+ *   - 工作区隔离（v0.3.4）：通过 DSH 客户端运行时 sessions 服务读取「当前选中
+ *     会话」的工作区 cwd，随 unidoc.root(hintCwd) 上报 Host 作为权威根目录信号；
+ *     即使切换到早已创建的历史会话（listSessions 按 createdAt 排序会命中幽灵会话），
+ *     也能精确命中当前工作区，杜绝「无论打开哪个工作区都显示 A」
  *   - 文件树：懒加载 + 「展开全部/折叠全部」（含 .git 等隐藏目录，异步分批加载）
  *   - 文件树图标：按扩展名映射 Font Awesome 图标（内嵌官方 SVG path）
  *   - HTML 预览「新标签页打开」（unidoc.openExternal）+ 各视图「外部打开」
@@ -209,8 +212,30 @@ return {
       setOption('editors', [...(store.options.editors || []), { name: n, cmd: c }])
     }
 
-    // 启动时获取根目录与原始字节路由前缀（Host 已先于 Client 激活）
-    host.call('unidoc.root')
+    // 读取「当前选中会话」的工作区 cwd（DSH 客户端运行时 sessions 服务的权威信号）。
+    // 防御式读取：任何一步缺失/异常都返回空串（Host 端将回退到候选解析）。
+    // 访问路径（dsh-client-runtime）：sessions.manager.selected → 当前选中会话 id；
+    // sessions.list.getSnapshot().byId[id].cwd → 该会话的工作区目录。
+    // 静态包形态下由 build-client.mjs 将 fakeCtx.get 转发到真实 ctx 服务（含 sessions）。
+    const currentSessionCwd = () => {
+      try {
+        const sessionsSvc = ctx.get('sessions')
+        if (!sessionsSvc) return ''
+        const list = sessionsSvc.list && typeof sessionsSvc.list.getSnapshot === 'function'
+          ? sessionsSvc.list.getSnapshot() : null
+        const selected = (sessionsSvc.manager && sessionsSvc.manager.selected)
+          || (list && list.current)
+        if (!selected) return ''
+        const cwd = list && list.byId && list.byId[selected] && list.byId[selected].cwd
+        return typeof cwd === 'string' ? cwd : ''
+      } catch (e) {
+        return ''
+      }
+    }
+
+    // 启动时获取根目录与原始字节路由前缀（Host 已先于 Client 激活）；
+    // 同时上报当前会话工作区（hintCwd）作为权威根目录信号
+    host.call('unidoc.root', { hintCwd: currentSessionCwd() })
       .then((r) => {
         if (r && r.root) store.root = String(r.root)
         if (r && r.rawPrefix) store.rawPrefix = String(r.rawPrefix)
@@ -1310,10 +1335,12 @@ return {
       //   2) 运行期间每 5s 周期感知工作区切换：根目录变化 → 清空选中文件（关闭预览）、
       //      重置文件树（清缓存、重置展开状态、重置滚动位置到顶部）并提示。
       // 文件树自身的重置/重载由 Tree 的 [refreshKey, root] 依赖驱动（见 Tree 组件）。
+      // hintCwd：随每次 unidoc.root 上报「当前选中会话」的工作区（权威信号），
+      // 使 Host 精确命中当前工作区——即使切换到早已创建的历史会话，也不残留旧根。
       const syncRoot = async () => {
         let changed = false
         try {
-          const r = await host.call('unidoc.root', { refresh: true })
+          const r = await host.call('unidoc.root', { refresh: true, hintCwd: currentSessionCwd() })
           if (r && r.root) {
             changed = r.root !== store.root
             store.root = String(r.root)
