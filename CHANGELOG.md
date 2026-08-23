@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.5] - 2026-08-23
+
+### Fixed
+
+- **修复 v0.3.4 回归：DSH 页面侧边栏插件图标消失（Client 半端崩溃）**。v0.3.4 将静态 bundle 的 `fakeCtx.get` 从「白名单写死」改为「全量转发 `ctx[name]`」——而 DSH **客户端运行时没有 `timer` 服务**（`dsh-client-runtime` 仅提供 slots / sessions 等，timer 由静态桥接以 `setTimeout` 提供）。Cordis 的 `ctx` 是 Proxy，对未提供/未注入的服务属性访问会**抛错**（`cannot get property "timer" without inject`）；由于 `const value = ctx[name]` 位于第一行，`ctx.get('timer')` 在 `client.js` apply 顶层**未受保护**地抛错，导致整个 Client 半端加载失败——侧边栏入口图标与文档中心工作台全部消失。修复要点：
+  - `scripts/build-client.mjs` 的 `fakeCtx.get` 改为：**`timer` 写死返回桥接实现**（恢复 v0.3.3 行为，绝不访问 `ctx.timer`）；slots / sessions 等服务用 **try/catch 包裹的安全转发**，未提供时返回 `undefined`（调用方容错回退），绝不抛出；
+  - 保留 v0.3.4 的 hintCwd 工作区隔离能力（`ctx.get('sessions')` 仍尽力读取，失败自动回退 Host 候选解析）；
+  - 重新构建 `lib/client.js`，并同步修复版到已安装插件的运行目录（刷新页面即恢复图标）。
+
 ## [0.3.4] - 2026-08-23
 
 ### Fixed
