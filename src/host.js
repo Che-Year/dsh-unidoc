@@ -9,11 +9,17 @@
  *   - HTTP 路由：GET /dsh-unidoc/raw?p=<相对路径>（图片 / PDF / HTML 原始字节，含安全响应头）
  *   - 动态 Agent 工具：doc_read / doc_edit / doc_create
  *
- * 根目录解析（多级候选，取第一个真实存在的目录）：
+ * 根目录解析（多级候选，同一 cwd 去重，取第一个真实存在的目录）：
  *   1) 当前发起者 Agent 的会话 cwd（agents.currentInitiator()）
- *   2) 在线 Agent 列表的会话 cwd（agents.list()）
- *   3) 最近会话记录的 cwd（sessionQuery.listSessions()，newest-first）
- *   4) 兜底：sandboxPolicy.workspaceRoot
+ *      —— 仅在 Agent 工具调用上下文有效；浏览器 RPC（Client→Host）位于
+ *         Agent 驱动链（initiator 边界）之外，此候选返回 undefined
+ *   2) 最近创建的会话 cwd（sessionQuery.listSessions()，newest-first，
+ *      按 createdAt 降序）—— 浏览器 RPC 场景的主信号：切换工作区
+ *      （新建 / 激活会话）后，最近创建的会话即当前工作区
+ *   3) 在线 Agent 列表的会话 cwd（agents.list()，注册顺序）——
+ *      从最新注册（末尾）向旧（开头）遍历，与「最近会话优先」信号一致，
+ *      避免命中仍在线但已切换走的旧工作区 Agent
+ *   4) 兜底：sandboxPolicy.workspaceRoot（每次动态读取，部署级 fallback）
  * 工具执行时额外以调用者 Agent（exec.agent）的会话 cwd 为准，保证精准命中当前工作区。
  *
  * 安全边界：所有路径解析都以工作区根目录为锚，经 fs.contains 校验，杜绝目录穿越；
@@ -32,9 +38,8 @@ return {
       return
     }
 
-    const FALLBACK_ROOT = policy.workspaceRoot
-    // 路由路径带随机后缀：每次激活注册独立前缀，避免更新时与旧运行的残留路由冲突；
-    // 客户端通过 unidoc.root RPC 获取实际前缀
+    // 兜底根目录每次解析时动态读取 policy.workspaceRoot（部署级 fallback，
+    // 不随会话变化；不在此缓存，避免激活时捕获陈旧值）
     const RAW_PREFIX = '/dsh-unidoc/raw-' + Math.random().toString(36).slice(2, 8)
 
     /* ---------------- 常量与工具 ---------------- */
@@ -59,10 +64,14 @@ return {
     /* ---------------- 根目录解析 ---------------- */
     const collectCandidates = async () => {
       const out = []
+      const seen = new Set()
       const add = (p) => {
-        if (p && typeof p === 'string' && p.trim()) out.push(p.trim())
+        if (!p || typeof p !== 'string') return
+        const t = p.trim()
+        if (t && !seen.has(t)) { seen.add(t); out.push(t) }
       }
-      // 1) 当前发起者 Agent
+      // 1) 当前发起者 Agent（仅 Agent 工具调用上下文有效；
+      //    浏览器 RPC 位于 initiator 边界外，currentInitiator() 返回 undefined）
       try {
         const agentsSvc = ctx.get('agents')
         if (agentsSvc && typeof agentsSvc.currentInitiator === 'function') {
@@ -70,19 +79,8 @@ return {
           if (initiator && initiator.session && initiator.session.header) add(initiator.session.header.cwd)
         }
       } catch (e) { /* 忽略 */ }
-      // 2) 在线 Agent 列表
-      try {
-        const agentsSvc = ctx.get('agents')
-        if (agentsSvc && typeof agentsSvc.list === 'function') {
-          const list = agentsSvc.list()
-          if (Array.isArray(list)) {
-            for (const a of list) {
-              if (a && a.session && a.session.header) add(a.session.header.cwd)
-            }
-          }
-        }
-      } catch (e) { /* 忽略 */ }
-      // 3) 最近会话记录（newest-first）
+      // 2) 最近创建的会话（newest-first，按 createdAt 降序）——
+      //    浏览器 RPC 场景的主信号：切换工作区后最近创建的会话即当前工作区
       try {
         const q = ctx.get('sessionQuery')
         if (q && typeof q.listSessions === 'function') {
@@ -94,8 +92,23 @@ return {
           }
         }
       } catch (e) { /* 忽略 */ }
-      // 4) 兜底
-      add(FALLBACK_ROOT)
+      // 3) 在线 Agent 列表（注册顺序：旧在前、新在后）——
+      //    从最新注册向旧遍历，与「最近会话优先」信号一致，
+      //    避免命中仍在线但已切换走的旧工作区 Agent
+      try {
+        const agentsSvc = ctx.get('agents')
+        if (agentsSvc && typeof agentsSvc.list === 'function') {
+          const list = agentsSvc.list()
+          if (Array.isArray(list)) {
+            for (let i = list.length - 1; i >= 0; i--) {
+              const a = list[i]
+              if (a && a.session && a.session.header) add(a.session.header.cwd)
+            }
+          }
+        }
+      } catch (e) { /* 忽略 */ }
+      // 4) 兜底：部署级 workspaceRoot（每次动态读取）
+      try { add(policy.workspaceRoot) } catch (e) { /* 忽略 */ }
       return out
     }
 
@@ -120,8 +133,10 @@ return {
               return c
             }
           }
-          console.log('dsh-unidoc: 未找到有效工作区，使用兜底根目录 =', FALLBACK_ROOT)
-          return FALLBACK_ROOT
+          let fallback = ''
+          try { fallback = policy.workspaceRoot } catch (e) { /* 忽略 */ }
+          console.log('dsh-unidoc: 未找到有效工作区，使用兜底根目录 =', fallback)
+          return fallback
         })()
       }
       return rootPromise
