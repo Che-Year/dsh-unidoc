@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.3] - 2026-08-22
+
+### Fixed
+
+- **修复切换工作区后文件树仍显示旧工作区的问题（根因级修复）**：浏览器 RPC（Client→Host）位于 Agent 驱动链（initiator 边界）之外，`agents.currentInitiator()` 在 `unidoc.root` 中返回 `undefined`；而 `agents.list()` 按注册顺序返回**所有在线 Agent**（旧在前、新在后），切换工作区后旧会话 Agent 仍在线且排在前面，导致根目录解析命中**旧工作区**——文件树随之显示旧结构，手动刷新也无效。修复要点：
+  - `collectCandidates` 候选顺序重排为「最近会话优先」：发起者 Agent（工具调用场景）→ **最近创建的会话**（`sessionQuery.listSessions()`，newest-first，按 `createdAt` 降序）→ 在线 Agent 列表（**从最新注册向旧遍历**）→ 兜底 `sandboxPolicy.workspaceRoot`（改为每次动态读取，不再于激活时缓存）；
+  - 候选去重：同一 `cwd` 只保留一次，避免重复 `fs.stat`。
+- **文件树 / 路径状态在刷新与工作区切换时完全重置**：配合上述根目录修正，打开文档中心、手动刷新与运行期 5s 轮询检测到根目录变化时，文件树自动清空缓存、重置展开状态与滚动位置到根目录、关闭旧文件预览并重载当前工作区文件结构，顶部路径与文件树内容始终一致，不再残留任何旧工作区状态。
+
 ## [0.3.2] - 2026-08-22
 
 ### Fixed
